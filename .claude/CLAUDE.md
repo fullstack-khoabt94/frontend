@@ -1,0 +1,300 @@
+# Taskflow — Frontend
+
+Single-page todo application. **Frontend only** — the backend is built separately and
+wired in later. Everything the UI needs is already modelled here: routes, forms,
+validation, query/mutation hooks and a typed axios layer.
+
+---
+
+## 1. Product requirements
+
+The UI must support exactly this feature set:
+
+**Tasks**
+- Add a task
+- Update a task
+- Delete a task
+- Mark a task as **in progress**
+- Mark a task as **done**
+
+**Lists** (all five are first-class, URL-addressable views)
+- List all tasks
+- List all tasks that are **done**
+- List all tasks that are **not done** (composite of `todo` + `in_progress`)
+- List all tasks that are **in progress**
+- List all tasks that are **to do**
+
+**Account**
+- Login
+- Logout
+- Signup
+- Forgot password
+- Reset password
+
+Anything not on this list is out of scope unless explicitly requested.
+
+---
+
+## 2. Domain model
+
+### Task
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `id` | `string` | Server-generated |
+| `title` | `string` | Required, 1–120 chars |
+| `description` | `string \| null` | Optional, ≤ 1000 chars |
+| `status` | `'todo' \| 'in_progress' \| 'done'` | Defaults to `todo` |
+| `priority` | `'low' \| 'medium' \| 'high'` | Defaults to `medium` |
+| `dueDate` | `string \| null` | ISO 8601; optional |
+| `createdAt` | `string` | ISO 8601 |
+| `updatedAt` | `string` | ISO 8601 |
+
+`priority` and `dueDate` are **supporting fields**, not requirements. They exist so the
+list has something to sort and rank by. If the backend does not have them, drop them
+from `taskSchema` / `taskFormSchema` and the UI degrades cleanly.
+
+### Status is a three-state enum, not a boolean
+
+`done` is a status, **not** a `completed: boolean`. "Not done" is derived
+(`status !== 'done'`), never stored. Do not introduce a separate boolean flag —
+it creates two sources of truth.
+
+### Filters
+
+`TaskFilter = 'all' | 'not_done' | 'todo' | 'in_progress' | 'done'`
+
+`not_done` is resolved **server-side** so pagination and counts stay correct. The
+client never merges two list responses.
+
+### User
+
+`{ id, name, email, avatarUrl?, createdAt }` — passwords never leave the auth endpoints.
+
+---
+
+## 3. Routes and UX decisions
+
+```
+/                        → redirect: /tasks if signed in, else /login
+/login                   ┐
+/signup                  │ _auth  (pathless layout)
+/forgot-password         │        signed-in visitors are bounced to /tasks
+/reset-password?token=…  ┘
+/tasks?filter&q&sort       _app   (pathless layout, requires a session)
+```
+
+**Why one task page, not one page per filter.** All five views are the same list with a
+different predicate. Splitting them into routes would duplicate the toolbar, the empty
+states and the mutation wiring, and would make switching filters feel like a page load.
+Instead the filter lives in the URL as a search param, so every view is still linkable,
+refresh-safe and back-button friendly.
+
+**Search params are the source of truth** for `filter`, `q` and `sort` on `/tasks`.
+They are validated by `taskSearchSchema` (zod) with `.catch()` fallbacks, so a
+hand-edited or stale URL degrades to defaults instead of crashing.
+
+**Guards live in `beforeLoad`**, not in components — a protected page never renders a
+frame before redirecting. `/_app` records the attempted URL in `?redirect=` so login
+returns the user where they were going.
+
+**Auth screens share one frame** (`AuthShell`): brand panel on the left (hidden below
+`lg`), form on the right. Four screens, one layout, no drift.
+
+**Forgot-password never confirms whether an email exists.** The success copy is
+deliberately conditional ("If an account exists for…"). Do not "improve" this into a
+"no account found" error — that is an account-enumeration leak.
+
+**Destructive actions confirm.** Delete goes through an `AlertDialog` naming the task.
+
+**Status changes are optimistic.** Toggling a task is the most frequent action in the
+app, so `useUpdateTaskStatus` writes to the cache immediately and rolls back on error.
+Create / update / delete are *not* optimistic — they are rarer and the server response
+carries fields the client cannot invent.
+
+---
+
+## 4. Tech stack
+
+| Concern | Choice |
+| --- | --- |
+| Build | Vite 8 + React 19 + TypeScript 6 |
+| Routing | TanStack Router (file-based, auto code-splitting) |
+| Server state | TanStack Query 5 |
+| Forms | React Hook Form + `@hookform/resolvers/zod` |
+| Validation | Zod 4 |
+| HTTP | Axios |
+| UI | shadcn/ui (`radix-nova` style, Radix primitives) + Tailwind CSS 4 |
+| Icons | lucide-react |
+| Toasts | sonner |
+| Theme | next-themes (`class` strategy, light/dark/system) |
+
+**Zod is the single schema source.** Form validation, API response parsing and search
+params all derive from the same schemas in `features/*/schemas.ts`. Never hand-write a
+TypeScript type that duplicates a schema — use `z.infer` / `z.input` / `z.output`.
+
+---
+
+## 5. Project structure
+
+```
+src/
+├── components/
+│   ├── ui/                 shadcn primitives — regenerated by the CLI, avoid hand-edits
+│   ├── layout/             app-header
+│   ├── common/             logo
+│   ├── theme-provider.tsx
+│   └── mode-toggle.tsx
+├── features/
+│   ├── auth/
+│   │   ├── components/     auth-shell, password-input, password-strength
+│   │   ├── api.ts          axios calls, responses parsed with zod
+│   │   ├── queries.ts      TanStack Query mutations
+│   │   ├── schemas.ts      zod schemas + inferred types
+│   │   └── session.ts      external store: token + user
+│   └── tasks/
+│       ├── components/     task-item, task-list bits, dialogs, filter bar, summary
+│       ├── api.ts
+│       ├── queries.ts      query options, mutations, cache keys
+│       ├── schemas.ts
+│       └── constants.ts    labels, icons and colour classes per status/priority/filter
+├── hooks/                  use-debounced-value
+├── lib/
+│   ├── api/
+│   │   ├── client.ts       axios instance + interceptors
+│   │   ├── mock-adapter.ts fake backend (delete when the real API lands)
+│   │   └── mock-db.ts      seed data for the mock
+│   ├── env.ts              every VITE_* flag, read in exactly one place
+│   ├── format.ts           date/initials helpers
+│   ├── query-client.ts
+│   └── utils.ts            cn()
+├── routes/                 file-based routes; routeTree.gen.ts is GENERATED
+├── router.tsx
+└── main.tsx
+```
+
+**Feature-first, not type-first.** A feature owns its schemas, API calls, queries and
+components. Only genuinely shared things go in `components/` or `lib/`.
+
+`src/routeTree.gen.ts` is generated by `@tanstack/router-plugin` on dev/build.
+Never edit it, never resolve merge conflicts in it — regenerate instead.
+
+---
+
+## 6. Wiring the real backend
+
+Three things change, nothing else:
+
+1. `.env.local` → `VITE_USE_MOCK_API=false` and `VITE_API_BASE_URL=<your API>`
+2. Delete `src/lib/api/mock-adapter.ts` and `src/lib/api/mock-db.ts`
+3. Remove the `adapter` option and the `env.useMockApi` branch in `src/lib/api/client.ts`,
+   plus the two demo-only blocks guarded by `env.useMockApi` in
+   `routes/_auth/login.tsx` and `routes/_auth/forgot-password.tsx`
+
+### Endpoint contract the UI already expects
+
+| Method | Path | Request | Response |
+| --- | --- | --- | --- |
+| `POST` | `/auth/signup` | `{ name, email, password }` | `201 { accessToken, user }` |
+| `POST` | `/auth/login` | `{ email, password, rememberMe }` | `200 { accessToken, user }` · `401` on bad credentials |
+| `POST` | `/auth/logout` | — | `204` |
+| `GET` | `/auth/me` | — | `200 user` |
+| `POST` | `/auth/forgot-password` | `{ email }` | `200 { message }` — always 200, even for unknown emails |
+| `POST` | `/auth/reset-password` | `{ token, password }` | `200 { message }` · `400` on expired token |
+| `GET` | `/tasks` | query: `filter`, `q?`, `sort` | `200 { data: Task[], stats: Record<TaskFilter, number> }` |
+| `POST` | `/tasks` | `{ title, description, status, priority, dueDate }` | `201 Task` |
+| `PATCH` | `/tasks/:id` | same as POST | `200 Task` |
+| `PATCH` | `/tasks/:id/status` | `{ status }` | `200 Task` |
+| `DELETE` | `/tasks/:id` | — | `200 Task` (or `204`) |
+
+`stats` must be computed **after** the `q` search filter but **before** the status
+filter — the counts on the filter tabs describe "how many would I see if I switched
+to that tab".
+
+Errors should return `{ "message": "human readable" }`; `getApiErrorMessage()` surfaces
+that string directly in toasts and inline alerts.
+
+Auth is `Authorization: Bearer <accessToken>`, attached by a request interceptor.
+A `401` on any non-auth endpoint clears the session and redirects to `/login`.
+
+**If the backend uses httpOnly refresh cookies instead**, change `sessionStore` and the
+interceptors in `lib/api/client.ts` — no component needs to know.
+
+---
+
+## 7. Design system
+
+### Palette (fixed — provided by design, do not substitute)
+
+| Token | Hex | Role |
+| --- | --- | --- |
+| `brand-50` | `#E3F2FD` | Soft surfaces, hover tints, secondary/accent fills |
+| `brand-200` | `#90CAF9` | Borders, tracks, the primary action colour in **dark** mode |
+| `brand-500` | `#2196F3` | Interactive accent, focus rings, the **in progress** status |
+| `brand-900` | `#0D47A1` | Primary buttons, brand mark, auth side panel |
+
+`brand-100 / 300 / 600 / 700` are interpolations of the four above, used only for
+hover and active states. Colours are declared in `src/index.css` as OKLCH.
+
+Semantic status colours live alongside the brand ramp:
+`--status-todo` (neutral grey), `--status-progress` (= `brand-500`),
+`--status-done` (green — the one intentional non-brand hue, because "completed" reading
+as green is a stronger UX signal than palette purity).
+
+**Dark mode inverts the action colour**: `--primary` is `brand-900` on light and
+`brand-200` on dark, so contrast stays above 4.5:1 in both.
+
+### Rules
+
+- Use semantic tokens (`bg-primary`, `text-muted-foreground`, `border-border`) in
+  components. Reach for `brand-*` only for deliberate brand moments.
+- Never hardcode a hex value in a component.
+- Every colour must be defined for light **and** dark. Test both.
+- Status colour, icon and label always come from `STATUS_META` — never inline them.
+
+---
+
+## 8. Conventions
+
+- **Imports** use the `@/` alias, never `../../..`.
+- **Files** are kebab-case; components are PascalCase; hooks are `use-*`.
+- **Query keys** come from `taskKeys` — never write an inline array key.
+- **Mutations own their toasts.** Components call `mutate` and stay quiet.
+- **Loading states are skeletons**, not spinners, wherever the shape is known.
+- **Empty states are specific**: no-search-results, no-tasks-at-all and each per-filter
+  empty state have their own copy (`task-empty-state.tsx`).
+- **Accessibility is not optional**: every icon-only button has an `aria-label`, form
+  errors are wired via `aria-invalid` + `FieldError`, filter tabs use real
+  `role="tablist"` semantics.
+- **shadcn components** in `src/components/ui/` are vendored. Add new ones with
+  `npx shadcn@latest add <name>` rather than hand-writing them.
+- **`form` component does not exist** in the `radix-nova` style — use `Field`,
+  `FieldLabel`, `FieldError` and `FieldGroup` with React Hook Form's `register` /
+  `Controller`.
+- Prefer `Controller` / `useWatch` over `form.watch()` — the React Compiler lint rule
+  flags `watch()` as unmemoizable.
+
+---
+
+## 9. Commands
+
+```bash
+npm run dev       # Vite dev server on :5173
+npm run build     # tsc -b && vite build
+npm run preview   # serve the production build
+npm run lint      # oxlint
+```
+
+Demo account while the mock API is on: `demo@todo.app` / `Password123`.
+The mock persists to `localStorage` under `todo.mock-db`; clear that key to reseed.
+
+---
+
+## 10. Known gaps (intentional)
+
+- No pagination — the list endpoint returns everything. Add cursor params to
+  `taskSearchSchema` and `tasksApi.list` when the backend supports it.
+- No refresh-token rotation — `accessToken` is stored in `localStorage`. If the
+  backend issues refresh tokens, add a response interceptor that retries once on 401.
+- No account/profile page — the header menu only offers logout.
+- No tests — the wiring is deliberately thin so it can be tested once the API is real.
