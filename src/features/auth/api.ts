@@ -38,7 +38,7 @@ export const authApi = {
     return userSchema.parse(data)
   },
 
-  async forgotPassword(payload: ForgotPasswordPayload): Promise<{ message: string; debugToken?: string }> {
+  async forgotPassword(payload: ForgotPasswordPayload): Promise<{ message: string }> {
     const { data } = await api.post('/auth/forgot-password', payload)
     return data
   },

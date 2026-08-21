@@ -18,7 +18,12 @@ import {
   useUpdateTask,
   useUpdateTaskStatus,
 } from '@/features/tasks/queries'
-import { taskSearchSchema, type Task, type TaskFormValues, type TaskStatus } from '@/features/tasks/schemas'
+import {
+  taskSearchSchema,
+  type Task,
+  type TaskFormValues,
+  type TaskStatus,
+} from '@/features/tasks/schemas'
 
 export const Route = createFileRoute('/_app/tasks')({
   // Filter / search / sort live in the URL, so every view is shareable.
@@ -117,7 +122,9 @@ function TasksPage() {
             search={searchInput}
             onSearchChange={setSearchInput}
             sort={search.sort}
-            onSortChange={(sort) => void navigate({ search: (previous) => ({ ...previous, sort }) })}
+            onSortChange={(sort) =>
+              void navigate({ search: (previous) => ({ ...previous, sort }) })
+            }
             stats={stats}
           />
 
@@ -126,7 +133,9 @@ function TasksPage() {
               {FILTER_META[search.filter].label}
               {stats ? ` · ${tasks.length}` : ''}
             </h2>
-            <p className="text-xs text-muted-foreground">{FILTER_META[search.filter].description}</p>
+            <p className="text-xs text-muted-foreground">
+              {FILTER_META[search.filter].description}
+            </p>
           </div>
 
           {isInitialLoading ? (

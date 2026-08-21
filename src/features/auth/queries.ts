@@ -51,6 +51,7 @@ export function useLogout() {
       sessionStore.clear()
       client.clear()
     },
-    onError: (error) => toast.message('Signed out locally', { description: getApiErrorMessage(error) }),
+    onError: (error) =>
+      toast.message('Signed out locally', { description: getApiErrorMessage(error) }),
   })
 }

@@ -22,7 +22,11 @@ export type Task = z.infer<typeof taskSchema>
 
 /** Shape of the Add / Edit task form. */
 export const taskFormSchema = z.object({
-  title: z.string().trim().min(1, 'Title is required').max(120, 'Keep the title under 120 characters'),
+  title: z
+    .string()
+    .trim()
+    .min(1, 'Title is required')
+    .max(120, 'Keep the title under 120 characters'),
   description: z.string().trim().max(1000, 'Keep the description under 1000 characters').optional(),
   status: taskStatusSchema.default('todo'),
   priority: taskPrioritySchema.default('medium'),

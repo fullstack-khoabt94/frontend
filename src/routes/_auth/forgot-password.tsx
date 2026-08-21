@@ -10,7 +10,6 @@ import { AuthShell } from '@/features/auth/components/auth-shell'
 import { useForgotPassword } from '@/features/auth/queries'
 import { forgotPasswordSchema, type ForgotPasswordPayload } from '@/features/auth/schemas'
 import { getApiErrorMessage } from '@/lib/api/client'
-import { env } from '@/lib/env'
 
 export const Route = createFileRoute('/_auth/forgot-password')({
   component: ForgotPasswordPage,
@@ -29,7 +28,10 @@ function ForgotPasswordPage() {
   })
 
   const backToLogin = (
-    <Link to="/login" className="inline-flex items-center gap-1.5 font-medium text-primary hover:underline">
+    <Link
+      to="/login"
+      className="inline-flex items-center gap-1.5 font-medium text-primary hover:underline"
+    >
       <ArrowLeft className="size-3.5" />
       Back to sign in
     </Link>
@@ -37,16 +39,14 @@ function ForgotPasswordPage() {
 
   // Success state deliberately does not reveal whether the email is registered.
   if (forgotPassword.isSuccess) {
-    const debugToken = forgotPassword.data?.debugToken
-
     return (
       <AuthShell
         title="Check your inbox"
         description={
           <>
             If an account exists for{' '}
-            <span className="font-medium text-foreground">{form.getValues('email')}</span>, we have sent a
-            link to reset your password.
+            <span className="font-medium text-foreground">{form.getValues('email')}</span>, we have
+            sent a link to reset your password.
           </>
         }
         footer={backToLogin}
@@ -60,20 +60,6 @@ function ForgotPasswordPage() {
               The link expires in 30 minutes. Remember to check your spam folder.
             </p>
           </div>
-
-          {env.useMockApi && debugToken && (
-            <Alert>
-              <AlertCircle className="size-4" />
-              <AlertDescription className="space-y-2">
-                <span>No mail server in this demo — open the reset screen directly:</span>
-                <Button variant="outline" size="sm" asChild>
-                  <Link to="/reset-password" search={{ token: debugToken }}>
-                    Open reset link
-                  </Link>
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
 
           <Button
             variant="outline"

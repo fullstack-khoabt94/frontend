@@ -20,7 +20,13 @@ export function StatusBadge({ status, className }: { status: TaskStatus; classNa
   )
 }
 
-export function PriorityBadge({ priority, className }: { priority: TaskPriority; className?: string }) {
+export function PriorityBadge({
+  priority,
+  className,
+}: {
+  priority: TaskPriority
+  className?: string
+}) {
   const meta = PRIORITY_META[priority]
   return (
     <span

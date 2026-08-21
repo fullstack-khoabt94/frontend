@@ -47,7 +47,8 @@ export function useCreateTask() {
 export function useUpdateTask() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, values }: { id: string; values: TaskFormValues }) => tasksApi.update(id, values),
+    mutationFn: ({ id, values }: { id: string; values: TaskFormValues }) =>
+      tasksApi.update(id, values),
     onSuccess: (task) => {
       void invalidateTasks(client)
       toast.success('Task updated', { description: task.title })
@@ -85,7 +86,8 @@ export function useUpdateTaskStatus() {
       toast.error(getApiErrorMessage(error))
     },
     onSuccess: (task) => {
-      if (task.status === 'done') toast.success('Nice — task completed', { description: task.title })
+      if (task.status === 'done')
+        toast.success('Nice — task completed', { description: task.title })
     },
     onSettled: () => invalidateTasks(client),
   })

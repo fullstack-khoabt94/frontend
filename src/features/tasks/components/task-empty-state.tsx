@@ -31,7 +31,8 @@ export function TaskEmptyState({
         <div className="space-y-1">
           <p className="font-medium">No results for “{search}”</p>
           <p className="text-sm text-muted-foreground">
-            Try a different keyword, or clear the search to see {FILTER_META[filter].label.toLowerCase()}.
+            Try a different keyword, or clear the search to see{' '}
+            {FILTER_META[filter].label.toLowerCase()}.
           </p>
         </div>
         <Button variant="outline" size="lg" onClick={onClearSearch}>

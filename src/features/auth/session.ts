@@ -1,8 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { User } from './schemas'
 
-const STORAGE_KEY = 'todo.session'
-
 export type Session = {
   accessToken: string | null
   user: User | null
@@ -10,17 +8,7 @@ export type Session = {
 
 const EMPTY: Session = { accessToken: null, user: null }
 
-function read(): Session {
-  if (typeof window === 'undefined') return EMPTY
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as Session) : EMPTY
-  } catch {
-    return EMPTY
-  }
-}
-
-let state: Session = read()
+let state: Session = EMPTY
 const listeners = new Set<() => void>()
 
 function emit() {
@@ -33,13 +21,17 @@ function emit() {
  * It is a plain external store (not React context) on purpose: the axios
  * interceptor and the TanStack Router `beforeLoad` guards both need to read the
  * token outside of React's render cycle.
+ *
+ * The session is held **in memory only** — a reload signs the user out. Adding
+ * persistence (httpOnly cookie, refresh-token exchange, storage of your choice)
+ * is a backend concern, and hydrating `state` here is the only change the rest
+ * of the app needs.
  */
 export const sessionStore = {
   getState: () => state,
   isAuthenticated: () => Boolean(state.accessToken),
   set(next: Session) {
     state = next
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
     emit()
   },
   setUser(user: User) {
@@ -47,12 +39,13 @@ export const sessionStore = {
   },
   clear() {
     state = EMPTY
-    window.localStorage.removeItem(STORAGE_KEY)
     emit()
   },
   subscribe(listener: () => void) {
     listeners.add(listener)
-    return () => listeners.delete(listener)
+    return () => {
+      listeners.delete(listener)
+    }
   },
 }
 

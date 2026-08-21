@@ -37,16 +37,35 @@ export const STATUS_META: Record<TaskStatus, StatusMeta> = {
 }
 
 export const PRIORITY_META: Record<TaskPriority, { label: string; badge: string; dot: string }> = {
-  low: { label: 'Low', badge: 'text-muted-foreground border-border', dot: 'bg-muted-foreground/50' },
-  medium: { label: 'Medium', badge: 'text-brand-700 border-brand-200 dark:text-brand-200', dot: 'bg-brand-500' },
+  low: {
+    label: 'Low',
+    badge: 'text-muted-foreground border-border',
+    dot: 'bg-muted-foreground/50',
+  },
+  medium: {
+    label: 'Medium',
+    badge: 'text-brand-700 border-brand-200 dark:text-brand-200',
+    dot: 'bg-brand-500',
+  },
   high: { label: 'High', badge: 'text-destructive border-destructive/30', dot: 'bg-destructive' },
 }
 
-export const FILTER_META: Record<TaskFilter, { label: string; shortLabel: string; description: string }> = {
+export const FILTER_META: Record<
+  TaskFilter,
+  { label: string; shortLabel: string; description: string }
+> = {
   all: { label: 'All tasks', shortLabel: 'All', description: 'Everything in your list.' },
-  not_done: { label: 'Not done', shortLabel: 'Not done', description: 'To do and in progress combined.' },
+  not_done: {
+    label: 'Not done',
+    shortLabel: 'Not done',
+    description: 'To do and in progress combined.',
+  },
   todo: { label: 'To do', shortLabel: 'To do', description: 'Not started yet.' },
-  in_progress: { label: 'In progress', shortLabel: 'In progress', description: 'Currently being worked on.' },
+  in_progress: {
+    label: 'In progress',
+    shortLabel: 'In progress',
+    description: 'Currently being worked on.',
+  },
   done: { label: 'Done', shortLabel: 'Done', description: 'Completed tasks.' },
 }
 

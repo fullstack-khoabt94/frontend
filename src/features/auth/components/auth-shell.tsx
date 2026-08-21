@@ -5,9 +5,21 @@ import { Logo } from '@/components/common/logo'
 import { ModeToggle } from '@/components/mode-toggle'
 
 const HIGHLIGHTS = [
-  { icon: ListChecks, title: 'One list, four views', body: 'Filter by to do, in progress, done — or everything at once.' },
-  { icon: CalendarCheck, title: 'Always know what is next', body: 'Due dates and priorities surface the work that matters today.' },
-  { icon: ShieldCheck, title: 'Your account, your data', body: 'Sessions expire safely and passwords reset in two clicks.' },
+  {
+    icon: ListChecks,
+    title: 'One list, four views',
+    body: 'Filter by to do, in progress, done — or everything at once.',
+  },
+  {
+    icon: CalendarCheck,
+    title: 'Always know what is next',
+    body: 'Due dates and priorities surface the work that matters today.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Your account, your data',
+    body: 'Sessions expire safely and passwords reset in two clicks.',
+  },
 ]
 
 /**
@@ -80,7 +92,9 @@ export function AuthShell({
               <p className="text-sm text-muted-foreground">{description}</p>
             </div>
             {children}
-            {footer && <div className="mt-7 text-center text-sm text-muted-foreground">{footer}</div>}
+            {footer && (
+              <div className="mt-7 text-center text-sm text-muted-foreground">{footer}</div>
+            )}
           </div>
         </div>
       </main>

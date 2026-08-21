@@ -25,8 +25,8 @@ export function DeleteTaskDialog({ task, onOpenChange, onConfirm, isPending }: P
         <AlertDialogHeader>
           <AlertDialogTitle>Delete this task?</AlertDialogTitle>
           <AlertDialogDescription>
-            <span className="font-medium text-foreground">{task?.title}</span> will be removed permanently.
-            This cannot be undone.
+            <span className="font-medium text-foreground">{task?.title}</span> will be removed
+            permanently. This cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

@@ -43,7 +43,10 @@ function ResetPasswordPage() {
   })
 
   const backToLogin = (
-    <Link to="/login" className="inline-flex items-center gap-1.5 font-medium text-primary hover:underline">
+    <Link
+      to="/login"
+      className="inline-flex items-center gap-1.5 font-medium text-primary hover:underline"
+    >
       <ArrowLeft className="size-3.5" />
       Back to sign in
     </Link>

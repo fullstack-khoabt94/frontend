@@ -47,15 +47,7 @@ function RootLayout() {
   )
 }
 
-function CenteredMessage({
-  code,
-  title,
-  body,
-}: {
-  code: string
-  title: string
-  body: string
-}) {
+function CenteredMessage({ code, title, body }: { code: string; title: string; body: string }) {
   return (
     <div className="grid min-h-svh place-items-center px-6">
       <div className="max-w-sm space-y-4 text-center">

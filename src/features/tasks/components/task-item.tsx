@@ -1,4 +1,12 @@
-import { CalendarClock, CheckCircle2, MoreHorizontal, Pencil, Play, RotateCcw, Trash2 } from 'lucide-react'
+import {
+  CalendarClock,
+  CheckCircle2,
+  MoreHorizontal,
+  Pencil,
+  Play,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -41,7 +49,10 @@ export function TaskItem({ task, onEdit, onDelete, onStatusChange, isMutating }:
         isMutating && 'opacity-60',
       )}
     >
-      <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', STATUS_META[task.status].rail)} />
+      <span
+        aria-hidden
+        className={cn('absolute inset-y-0 left-0 w-1', STATUS_META[task.status].rail)}
+      />
 
       <Checkbox
         checked={isDone}
@@ -61,7 +72,9 @@ export function TaskItem({ task, onEdit, onDelete, onStatusChange, isMutating }:
             {task.title}
           </p>
           {task.description && (
-            <p className="line-clamp-2 text-sm text-muted-foreground wrap-anywhere">{task.description}</p>
+            <p className="line-clamp-2 text-sm text-muted-foreground wrap-anywhere">
+              {task.description}
+            </p>
           )}
         </div>
 

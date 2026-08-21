@@ -12,9 +12,7 @@ import { AuthShell } from '@/features/auth/components/auth-shell'
 import { PasswordInput } from '@/features/auth/components/password-input'
 import { useLogin } from '@/features/auth/queries'
 import { loginSchema, type LoginInput, type LoginPayload } from '@/features/auth/schemas'
-import { DEMO_CREDENTIALS } from '@/lib/api/mock-db'
 import { getApiErrorMessage } from '@/lib/api/client'
-import { env } from '@/lib/env'
 
 export const Route = createFileRoute('/_auth/login')({
   validateSearch: z.object({ redirect: z.string().optional() }),
@@ -115,13 +113,6 @@ function LoginPage() {
           {login.isPending && <Loader2 className="size-4 animate-spin" />}
           Sign in
         </Button>
-
-        {env.useMockApi && (
-          <p className="rounded-lg border border-dashed bg-card/60 p-3 text-center text-xs text-muted-foreground">
-            Demo account — <span className="font-medium text-foreground">{DEMO_CREDENTIALS.email}</span> /{' '}
-            <span className="font-medium text-foreground">{DEMO_CREDENTIALS.password}</span>
-          </p>
-        )}
       </form>
     </AuthShell>
   )
