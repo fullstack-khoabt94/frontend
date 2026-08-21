@@ -15,7 +15,7 @@ export function TaskSummary({ stats, isLoading }: { stats?: TaskStats; isLoading
 
   return (
     <section aria-label="Task overview" className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {CARDS.map(({ key, label, icon: Icon, tone }) => (
           <div key={key} className="rounded-xl border bg-card p-4">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -25,7 +25,9 @@ export function TaskSummary({ stats, isLoading }: { stats?: TaskStats; isLoading
             {isLoading || !stats ? (
               <span className="mt-2 block h-8 w-10 animate-pulse rounded bg-muted" />
             ) : (
-              <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums">{stats[key]}</p>
+              <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums">
+                {stats[key]}
+              </p>
             )}
           </div>
         ))}

@@ -13,7 +13,13 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { PRIORITY_META, STATUS_META } from '../constants'
 import {
@@ -75,7 +81,9 @@ export function TaskFormDialog({ open, onOpenChange, task, onSubmit, isPending }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      {/* Rows: header stays pinned, the fields scroll, the footer stays reachable
+          even on short viewports (small phones, any phone in landscape). */}
+      <DialogContent className="grid max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit task' : 'New task'}</DialogTitle>
           <DialogDescription>
@@ -83,8 +91,12 @@ export function TaskFormDialog({ open, onOpenChange, task, onSubmit, isPending }
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={submit} noValidate>
-          <FieldGroup>
+        <form
+          onSubmit={submit}
+          noValidate
+          className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-6"
+        >
+          <FieldGroup className="-mx-1 min-h-0 overflow-y-auto px-1">
             <Field data-invalid={Boolean(form.formState.errors.title)}>
               <FieldLabel htmlFor="task-title">Title</FieldLabel>
               <Input
@@ -162,7 +174,7 @@ export function TaskFormDialog({ open, onOpenChange, task, onSubmit, isPending }
             </Field>
           </FieldGroup>
 
-          <DialogFooter className="mt-6">
+          <DialogFooter>
             <Button type="button" variant="outline" size="lg" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>

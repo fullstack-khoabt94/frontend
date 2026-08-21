@@ -1,10 +1,22 @@
 import { Search, SlidersHorizontal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { FILTER_META, SORT_META } from '../constants'
-import { TASK_FILTERS, TASK_SORTS, type TaskFilter, type TaskSort, type TaskStats } from '../schemas'
+import {
+  TASK_FILTERS,
+  TASK_SORTS,
+  type TaskFilter,
+  type TaskSort,
+  type TaskStats,
+} from '../schemas'
 
 type Props = {
   filter: TaskFilter
@@ -69,8 +81,8 @@ export function TaskFilterBar({
         </Select>
       </div>
 
-      {/* Segmented control on md+, a plain select on small screens. */}
-      <div className="hidden overflow-x-auto md:block">
+      {/* Segmented control wherever the five tabs fit, a select below that. */}
+      <div className="hidden overflow-x-auto sm:block">
         <div
           role="tablist"
           aria-label="Filter tasks by status"
@@ -110,7 +122,7 @@ export function TaskFilterBar({
         </div>
       </div>
 
-      <div className="md:hidden">
+      <div className="sm:hidden">
         <Select value={filter} onValueChange={(value) => onFilterChange(value as TaskFilter)}>
           <SelectTrigger className="h-10 w-full" aria-label="Filter tasks by status">
             <SelectValue />
