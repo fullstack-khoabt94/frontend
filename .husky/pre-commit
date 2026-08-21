@@ -1,0 +1,4 @@
+# Lint + format only what is staged, then make sure the whole project still
+# type-checks. Anything lint-staged fixes is re-staged automatically.
+npx lint-staged
+npm run typecheck

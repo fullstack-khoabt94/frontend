@@ -1,0 +1,4 @@
+# Full gate before anything leaves the machine.
+npm run lint
+npm run typecheck
+npm run format:check

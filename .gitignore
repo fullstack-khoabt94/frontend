@@ -30,3 +30,4 @@ dist-ssr
 
 # Tooling output
 .playwright-mcp/
+testing/

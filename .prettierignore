@@ -1,0 +1,6 @@
+dist
+node_modules
+coverage
+testing
+package-lock.json
+src/routeTree.gen.ts
