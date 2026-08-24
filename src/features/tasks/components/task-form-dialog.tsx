@@ -23,6 +23,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { PRIORITY_META, STATUS_META } from '../constants'
 import {
+  earliestDueDate,
   TASK_PRIORITIES,
   TASK_STATUSES,
   taskFormSchema,
@@ -34,8 +35,8 @@ import {
 const EMPTY: TaskFormInput = {
   title: '',
   description: '',
-  status: 'todo',
-  priority: 'medium',
+  status: 'TODO',
+  priority: 'MEDIUM',
   dueDate: '',
 }
 
@@ -117,7 +118,6 @@ export function TaskFormDialog({ open, onOpenChange, task, onSubmit, isPending }
                 placeholder="Add any detail that helps you pick this up later."
                 {...form.register('description')}
               />
-              <FieldDescription>Optional.</FieldDescription>
               <FieldError errors={[form.formState.errors.description]} />
             </Field>
 
@@ -167,10 +167,19 @@ export function TaskFormDialog({ open, onOpenChange, task, onSubmit, isPending }
               </Field>
             </div>
 
-            <Field>
+            <Field data-invalid={Boolean(form.formState.errors.dueDate)}>
               <FieldLabel htmlFor="task-due">Due date</FieldLabel>
-              <Input id="task-due" type="date" {...form.register('dueDate')} />
-              <FieldDescription>Optional — leave empty for no deadline.</FieldDescription>
+              <Input
+                id="task-due"
+                type="date"
+                min={earliestDueDate()}
+                aria-invalid={Boolean(form.formState.errors.dueDate)}
+                {...form.register('dueDate')}
+              />
+              <FieldDescription>
+                Optional — leave empty for no deadline. Must be a future date.
+              </FieldDescription>
+              <FieldError errors={[form.formState.errors.dueDate]} />
             </Field>
           </FieldGroup>
 

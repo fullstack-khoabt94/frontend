@@ -55,8 +55,7 @@ function TasksPage() {
   const updateStatus = useUpdateTaskStatus()
   const deleteTask = useDeleteTask()
 
-  const tasks = list.data?.data ?? []
-  const stats = list.data?.stats
+  const { tasks, stats } = list
   const isInitialLoading = list.isPending
 
   const openCreate = () => {
@@ -80,7 +79,7 @@ function TasksPage() {
 
   const handleStatusChange = (task: Task, status: TaskStatus) => {
     if (task.status === status) return
-    updateStatus.mutate({ id: task.id, status })
+    updateStatus.mutate({ task, status })
   }
 
   const handleDelete = () => {

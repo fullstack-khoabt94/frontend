@@ -1,4 +1,4 @@
-import { format, formatDistanceToNowStrict, isPast, isToday, isTomorrow } from 'date-fns'
+import { format, isPast, isToday, isTomorrow } from 'date-fns'
 
 export function formatDueDate(iso: string | null | undefined) {
   if (!iso) return null
@@ -12,10 +12,6 @@ export function isOverdue(iso: string | null | undefined) {
   if (!iso) return false
   const date = new Date(iso)
   return isPast(date) && !isToday(date)
-}
-
-export function formatRelative(iso: string) {
-  return `${formatDistanceToNowStrict(new Date(iso))} ago`
 }
 
 export function initialsOf(name: string) {

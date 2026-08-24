@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import {
   queryOptions,
   useMutation,
@@ -8,26 +9,34 @@ import {
 import { toast } from 'sonner'
 import { getApiErrorMessage } from '@/lib/api/client'
 import { tasksApi } from './api'
-import type { Task, TaskFormValues, TaskListResponse, TaskSearch, TaskStatus } from './schemas'
+import { buildListView } from './list'
+import {
+  taskToFormValues,
+  type Task,
+  type TaskFormValues,
+  type TaskSearch,
+  type TaskStatus,
+} from './schemas'
 
 export const taskKeys = {
   all: ['tasks'] as const,
-  lists: () => [...taskKeys.all, 'list'] as const,
-  list: (search: TaskSearch) => [...taskKeys.lists(), search] as const,
+  list: () => [...taskKeys.all, 'list'] as const,
 }
 
-export const taskListQuery = (search: TaskSearch) =>
+/** One cached fetch of every task; the views are derived from it in the browser. */
+export const taskListQuery = () =>
   queryOptions({
-    queryKey: taskKeys.list(search),
-    queryFn: () => tasksApi.list(search),
-    placeholderData: (previous) => previous,
+    queryKey: taskKeys.list(),
+    queryFn: () => tasksApi.list(),
   })
 
 export function useTaskList(search: TaskSearch) {
-  return useQuery(taskListQuery(search))
+  const query = useQuery(taskListQuery())
+  const view = useMemo(() => buildListView(query.data ?? [], search), [query.data, search])
+
+  return { ...query, tasks: view.tasks, stats: query.data ? view.stats : undefined }
 }
 
-/** Every mutation refreshes all list variants, since filters/stats shift together. */
 function invalidateTasks(client: QueryClient) {
   return client.invalidateQueries({ queryKey: taskKeys.all })
 }
@@ -58,35 +67,29 @@ export function useUpdateTask() {
 }
 
 /**
- * Status changes are the highest-frequency action in the app, so they update
- * the cache optimistically and roll back if the request fails.
+ * There is no status-only endpoint, so a toggle is a full PUT built from the
+ * task we already hold. The cache is updated optimistically and rolled back on
+ * failure, since this is the highest-frequency action in the app.
  */
 export function useUpdateTaskStatus() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: TaskStatus; task?: Task }) =>
-      tasksApi.updateStatus(id, status),
-    onMutate: async ({ id, status }) => {
-      await client.cancelQueries({ queryKey: taskKeys.lists() })
-      const snapshot = client.getQueriesData<TaskListResponse>({ queryKey: taskKeys.lists() })
-      client.setQueriesData<TaskListResponse>({ queryKey: taskKeys.lists() }, (previous) =>
-        previous
-          ? {
-              ...previous,
-              data: previous.data.map((task) =>
-                task.id === id ? { ...task, status, updatedAt: new Date().toISOString() } : task,
-              ),
-            }
-          : previous,
+    mutationFn: ({ task, status }: { task: Task; status: TaskStatus }) =>
+      tasksApi.update(task.id, { ...taskToFormValues(task), status }),
+    onMutate: async ({ task, status }) => {
+      await client.cancelQueries({ queryKey: taskKeys.list() })
+      const snapshot = client.getQueryData<Task[]>(taskKeys.list())
+      client.setQueryData<Task[]>(taskKeys.list(), (previous) =>
+        previous?.map((item) => (item.id === task.id ? { ...item, status } : item)),
       )
       return { snapshot }
     },
     onError: (error, _variables, context) => {
-      context?.snapshot.forEach(([key, value]) => client.setQueryData(key, value))
+      client.setQueryData(taskKeys.list(), context?.snapshot)
       toast.error(getApiErrorMessage(error))
     },
     onSuccess: (task) => {
-      if (task.status === 'done')
+      if (task.status === 'DONE')
         toast.success('Nice — task completed', { description: task.title })
     },
     onSettled: () => invalidateTasks(client),

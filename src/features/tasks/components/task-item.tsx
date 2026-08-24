@@ -34,12 +34,12 @@ type Props = {
 }
 
 export function TaskItem({ task, onEdit, onDelete, onStatusChange, isMutating }: Props) {
-  const isDone = task.status === 'done'
+  const isDone = task.status === 'DONE'
   const due = formatDueDate(task.dueDate)
   const overdue = !isDone && isOverdue(task.dueDate)
 
   /** Clicking the checkbox is the fastest path between "done" and "not done". */
-  const toggleDone = () => onStatusChange(task, isDone ? 'todo' : 'done')
+  const toggleDone = () => onStatusChange(task, isDone ? 'TODO' : 'DONE')
 
   return (
     <li
@@ -96,23 +96,23 @@ export function TaskItem({ task, onEdit, onDelete, onStatusChange, isMutating }:
       </div>
 
       <div className="flex shrink-0 items-start gap-1">
-        {task.status === 'todo' && (
+        {task.status === 'TODO' && (
           <Button
             variant="ghost"
             size="sm"
             className="hidden text-status-progress hover:text-status-progress sm:inline-flex"
-            onClick={() => onStatusChange(task, 'in_progress')}
+            onClick={() => onStatusChange(task, 'IN_PROGRESS')}
           >
             <Play className="size-3.5" />
             Start
           </Button>
         )}
-        {task.status === 'in_progress' && (
+        {task.status === 'IN_PROGRESS' && (
           <Button
             variant="ghost"
             size="sm"
             className="hidden text-status-done hover:text-status-done sm:inline-flex"
-            onClick={() => onStatusChange(task, 'done')}
+            onClick={() => onStatusChange(task, 'DONE')}
           >
             <CheckCircle2 className="size-3.5" />
             Finish
@@ -123,7 +123,7 @@ export function TaskItem({ task, onEdit, onDelete, onStatusChange, isMutating }:
             variant="ghost"
             size="sm"
             className="hidden text-muted-foreground sm:inline-flex"
-            onClick={() => onStatusChange(task, 'todo')}
+            onClick={() => onStatusChange(task, 'TODO')}
           >
             <RotateCcw className="size-3.5" />
             Reopen

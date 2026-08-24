@@ -42,33 +42,50 @@ Anything not on this list is out of scope unless explicitly requested.
 
 ### Task
 
-| Field         | Type                                | Notes                  |
-| ------------- | ----------------------------------- | ---------------------- |
-| `id`          | `string`                            | Server-generated       |
-| `title`       | `string`                            | Required, 1–120 chars  |
-| `description` | `string \| null`                    | Optional, ≤ 1000 chars |
-| `status`      | `'todo' \| 'in_progress' \| 'done'` | Defaults to `todo`     |
-| `priority`    | `'low' \| 'medium' \| 'high'`       | Defaults to `medium`   |
-| `dueDate`     | `string \| null`                    | ISO 8601; optional     |
-| `createdAt`   | `string`                            | ISO 8601               |
-| `updatedAt`   | `string`                            | ISO 8601               |
+Mirrors the backend `TaskResponse` exactly.
 
-`priority` and `dueDate` are **supporting fields**, not requirements. They exist so the
-list has something to sort and rank by. If the backend does not have them, drop them from
-`taskSchema` / `taskFormSchema` and the UI degrades cleanly.
+| Field         | Type                                | Notes                                       |
+| ------------- | ----------------------------------- | ------------------------------------------- |
+| `id`          | `string`                            | Server-generated UUID                       |
+| `title`       | `string`                            | Required, 1–120 chars                       |
+| `description` | `string \| null`                    | **Required on write** (`@NotBlank`), ≤ 1000 |
+| `status`      | `'TODO' \| 'IN_PROGRESS' \| 'DONE'` | Defaults to `TODO`                          |
+| `priority`    | `'LOW' \| 'MEDIUM' \| 'HIGH'`       | Defaults to `MEDIUM`                        |
+| `dueDate`     | `string \| null`                    | Local date-time, no zone; must be future    |
+| `userId`      | `string`                            | Owner                                       |
+
+**Enum casing is SCREAMING_SNAKE_CASE** because Jackson serialises the Java enums by
+`name()`. Do not lowercase them on the wire — deserialisation fails in both directions.
+
+**There is no `createdAt` / `updatedAt`.** The columns exist in the database and on
+`BaseEntity`, but `TaskResponse` does not expose them, so the list cannot be ordered by
+age. That is why the sort options are priority / due date / title.
+
+**`dueDate` is a Java `LocalDateTime`**, so the wire format is `"2026-08-30T00:00:00"` —
+no `Z`, no offset. Sending an `Instant`-style UTC string fails to parse
+(`ISO_LOCAL_DATE_TIME` rejects the trailing `Z`). `tasksApi` converts the date input's
+`yyyy-MM-dd` accordingly.
+
+The backend validates `dueDate` with `@Future`, and midnight today is already past, so
+only tomorrow onwards is accepted. The form enforces the same rule client-side.
 
 ### Status is a three-state enum, not a boolean
 
-`done` is a status, **not** a `completed: boolean`. "Not done" is derived
-(`status !== 'done'`), never stored. Do not introduce a separate boolean flag — it creates
+`DONE` is a status, **not** a `completed: boolean`. "Not done" is derived
+(`status !== 'DONE'`), never stored. Do not introduce a separate boolean flag — it creates
 two sources of truth.
 
 ### Filters
 
 `TaskFilter = 'all' | 'not_done' | 'todo' | 'in_progress' | 'done'`
 
-`not_done` is resolved **server-side** so pagination and counts stay correct. The client
-never merges two list responses.
+These are **client-side, UI-only concepts** and stay lowercase so URLs read well — they
+are never sent to the backend. `GET /task/all` takes no parameters, so filtering,
+searching, sorting and the tab counts are all derived in the browser by
+`features/tasks/list.ts`.
+
+If the backend later grows `?filter=&q=&sort=` plus a stats envelope, delete that module
+and forward the search params from `tasksApi.list` instead.
 
 ### User
 
@@ -173,6 +190,7 @@ src/
 │   └── tasks/
 │       ├── components/     task-item, dialogs, filter bar, summary, empty states
 │       ├── api.ts
+│       ├── list.ts         client-side filter / search / sort / stats
 │       ├── queries.ts      query options, mutations, cache keys
 │       ├── schemas.ts
 │       └── constants.ts    labels, icons and colour classes per status/priority/filter
@@ -201,35 +219,57 @@ it, never resolve merge conflicts in it — regenerate instead.
 
 ## 6. Backend contract
 
-There is no mock and no fixture data — the app talks to whatever `VITE_API_BASE_URL` points
-at. Until that exists the screens render, every request fails, and the error is surfaced
-inline rather than crashing.
+The frontend is written against the Spring Boot service in `backend/backend`, reached
+through `VITE_API_BASE_URL` (`/api`, proxied to `localhost:8080` by the Vite dev server —
+see `vite.config.ts`). `WebConfig` prefixes every controller path with `/api`.
 
-| Method   | Path                    | Request                                             | Response                                                  |
-| -------- | ----------------------- | --------------------------------------------------- | --------------------------------------------------------- |
-| `POST`   | `/auth/signup`          | `{ name, email, password }`                         | `201 { accessToken, user }`                               |
-| `POST`   | `/auth/login`           | `{ email, password, rememberMe }`                   | `200 { accessToken, user }` · `401` on bad credentials    |
-| `POST`   | `/auth/logout`          | —                                                   | `204`                                                     |
-| `GET`    | `/auth/me`              | —                                                   | `200 user`                                                |
-| `POST`   | `/auth/forgot-password` | `{ email }`                                         | `200 { message }` — always 200, even for unknown emails   |
-| `POST`   | `/auth/reset-password`  | `{ token, password }`                               | `200 { message }` · `400` on expired token                |
-| `GET`    | `/tasks`                | query: `filter`, `q?`, `sort`                       | `200 { data: Task[], stats: Record<TaskFilter, number> }` |
-| `POST`   | `/tasks`                | `{ title, description, status, priority, dueDate }` | `201 Task`                                                |
-| `PATCH`  | `/tasks/:id`            | same as POST                                        | `200 Task`                                                |
-| `PATCH`  | `/tasks/:id/status`     | `{ status }`                                        | `200 Task`                                                |
-| `DELETE` | `/tasks/:id`            | —                                                   | `200 Task` (or `204`)                                     |
+### Tasks — implemented, and the frontend matches it
 
-`stats` must be computed **after** the `q` search filter but **before** the status filter —
-the counts on the filter tabs describe "how many would I see if I switched to that tab".
+| Method   | Path         | Request                                                     | Response          |
+| -------- | ------------ | ----------------------------------------------------------- | ----------------- |
+| `GET`    | `/task/all`  | —                                                           | `200 Task[]`      |
+| `GET`    | `/task/{id}` | —                                                           | `200 Task`        |
+| `POST`   | `/task`      | `{ title, description, status, priority, dueDate, userId }` | `201 Task`        |
+| `PUT`    | `/task/{id}` | same, without `userId`                                      | `200 Task`        |
+| `DELETE` | `/task/{id}` | —                                                           | `201` + `"Done!"` |
 
-Errors should return `{ "message": "human readable" }`; `getApiErrorMessage()` surfaces that
-string directly in toasts and inline alerts.
+Notes that shape the client:
 
-Auth is `Authorization: Bearer <accessToken>`, attached by a request interceptor. A `401` on
-any non-auth endpoint clears the session and redirects to `/login`.
+- **Path is `/task`, singular**, and the collection is `/task/all`.
+- **Update is `PUT`, not `PATCH`**, and `UpdateTaskDto` requires every field — partial
+  updates are not possible.
+- **There is no status-only endpoint.** Toggling a task sends a full `PUT` rebuilt from
+  the task already in the cache (`useUpdateTaskStatus`).
+- **`userId` is sent on create only**, read from `sessionStore`. When the backend takes
+  the owner from the authenticated principal, drop it from `tasksApi.create`.
+- `DELETE` answers `201` with a plain-text body; the client ignores both.
 
-**If the backend uses httpOnly refresh cookies instead**, change `sessionStore` and the
-interceptors in `lib/api/client.ts` — no component needs to know.
+### Auth — not implemented yet
+
+`AuthServiceImpl` is empty and `AuthController` returns the string `"OK"`, so
+`authResponseSchema.parse()` throws and **login cannot succeed**. The auth screens are
+left as-is, written against the contract below, and will start working once the backend
+returns it:
+
+| Method | Path                    | Request                           | Response                                                |
+| ------ | ----------------------- | --------------------------------- | ------------------------------------------------------- |
+| `POST` | `/auth/signup`          | `{ name, email, password }`       | `201 { accessToken, user }`                             |
+| `POST` | `/auth/login`           | `{ email, password, rememberMe }` | `200 { accessToken, user }` · `401` on bad credentials  |
+| `POST` | `/auth/logout`          | —                                 | `204`                                                   |
+| `GET`  | `/auth/me`              | —                                 | `200 user`                                              |
+| `POST` | `/auth/forgot-password` | `{ email }`                       | `200 { message }` — always 200, even for unknown emails |
+| `POST` | `/auth/reset-password`  | `{ token, password }`             | `200 { message }` · `400` on expired token              |
+
+Also note `POST /auth/signup` — the backend currently maps it as `@GetMapping`.
+
+### Errors
+
+`GlobalExceptionHandler` returns `{ "message": "..." }`, which `getApiErrorMessage()`
+surfaces in toasts and inline alerts. Validation failures and unhandled exceptions are not
+mapped yet, so those still come back in Spring's default shape.
+
+Auth is `Authorization: Bearer <accessToken>`, attached by a request interceptor. A `401`
+on any non-auth endpoint clears the session and redirects to `/login`.
 
 ---
 
@@ -355,12 +395,20 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
 
 ## 12. Known gaps (intentional)
 
-- No backend. Every screen renders, every request 404s until `VITE_API_BASE_URL` points at
-  a real API.
-- No pagination — the list endpoint returns everything. Add cursor params to
-  `taskSearchSchema` and `tasksApi.list` when the backend supports it.
+- **Login does not work.** The backend auth endpoints are stubs returning `"OK"`, so no
+  token is ever issued and the route guard keeps every visitor on `/login`. Nothing in the
+  task module can be exercised end-to-end until they are implemented.
+- **Overdue tasks cannot be edited or toggled.** The backend validates `dueDate` with
+  `@Future` on update as well as create, so any `PUT` carrying a past deadline is
+  rejected — including a plain status toggle. Removing `@Future` from `UpdateTaskDto` (or
+  dropping it entirely) is the fix; the client cannot work around it.
+- **No sort by age.** `TaskResponse` omits `createdAt` / `updatedAt`.
+- **No pagination.** `GET /task/all` returns every task and the browser does the rest.
+  Fine for small lists; revisit when the backend paginates.
+- **Tasks are not scoped to a user.** `getTasks()` has no `WHERE user_id = ?`, so once
+  real accounts exist everyone will see everyone's tasks.
 - No session persistence — `accessToken` lives in memory, so a reload returns the user to
-  `/login`. See section 2; this is left for the backend integration.
+  `/login`. See section 2.
 - No refresh-token rotation. If the backend issues refresh tokens, add a response
   interceptor that retries once on 401.
 - No account/profile page — the header menu only offers logout.

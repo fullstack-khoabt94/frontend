@@ -13,21 +13,21 @@ type StatusMeta = {
 }
 
 export const STATUS_META: Record<TaskStatus, StatusMeta> = {
-  todo: {
+  TODO: {
     label: 'To do',
     icon: Circle,
     badge: 'bg-status-todo-soft text-status-todo border-status-todo/20',
     rail: 'bg-status-todo/35',
     action: 'Move to to do',
   },
-  in_progress: {
+  IN_PROGRESS: {
     label: 'In progress',
     icon: Timer,
     badge: 'bg-status-progress-soft text-status-progress border-status-progress/25',
     rail: 'bg-status-progress',
     action: 'Start progress',
   },
-  done: {
+  DONE: {
     label: 'Done',
     icon: CheckCircle2,
     badge: 'bg-status-done-soft text-status-done border-status-done/25',
@@ -37,17 +37,17 @@ export const STATUS_META: Record<TaskStatus, StatusMeta> = {
 }
 
 export const PRIORITY_META: Record<TaskPriority, { label: string; badge: string; dot: string }> = {
-  low: {
+  LOW: {
     label: 'Low',
     badge: 'text-muted-foreground border-border',
     dot: 'bg-muted-foreground/50',
   },
-  medium: {
+  MEDIUM: {
     label: 'Medium',
     badge: 'text-brand-700 border-brand-200 dark:text-brand-200',
     dot: 'bg-brand-500',
   },
-  high: { label: 'High', badge: 'text-destructive border-destructive/30', dot: 'bg-destructive' },
+  HIGH: { label: 'High', badge: 'text-destructive border-destructive/30', dot: 'bg-destructive' },
 }
 
 export const FILTER_META: Record<
@@ -70,8 +70,7 @@ export const FILTER_META: Record<
 }
 
 export const SORT_META: Record<TaskSort, string> = {
-  created_desc: 'Newest first',
-  created_asc: 'Oldest first',
-  due_asc: 'Due date',
   priority_desc: 'Priority',
+  due_asc: 'Due date',
+  title_asc: 'Title (A–Z)',
 }

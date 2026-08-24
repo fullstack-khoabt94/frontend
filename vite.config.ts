@@ -14,5 +14,13 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // VITE_API_BASE_URL is "/api", so requests stay same-origin and the dev
+    // server forwards them to Spring Boot. Keeps CORS out of the picture.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
   },
 })
