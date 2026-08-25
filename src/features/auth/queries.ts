@@ -22,10 +22,13 @@ export function useLogin() {
   })
 }
 
+/**
+ * No `persist` here: signup returns the created user without an access token,
+ * so the account exists but the visitor is still signed out.
+ */
 export function useSignup() {
   return useMutation({
     mutationFn: (payload: SignupPayload) => authApi.signup(payload),
-    onSuccess: persist,
   })
 }
 

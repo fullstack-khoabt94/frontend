@@ -20,13 +20,17 @@ export const authApi = {
     return authResponseSchema.parse(data)
   },
 
-  async signup(payload: SignupPayload): Promise<AuthResponse> {
+  /**
+   * Signup creates the account but does not issue a token — the backend answers
+   * `201` with the user only, so the caller has to send them to /login.
+   */
+  async signup(payload: SignupPayload): Promise<User> {
     const { data } = await api.post('/auth/signup', {
       name: payload.name,
       email: payload.email,
       password: payload.password,
     })
-    return authResponseSchema.parse(data)
+    return userSchema.parse(data)
   },
 
   async logout(): Promise<void> {

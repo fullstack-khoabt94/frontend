@@ -29,15 +29,19 @@ export const loginSchema = z.object({
 export type LoginInput = z.input<typeof loginSchema>
 export type LoginPayload = z.output<typeof loginSchema>
 
+// Lengths mirror CreateUserDto on the backend (name ≤ 30, email ≤ 50). The
+// password rules are deliberately stricter than the server's @NotBlank —
+// tightening the client never breaks a laxer server.
 export const signupSchema = z
   .object({
-    name: z.string().min(2, 'Name must be at least 2 characters').max(60),
-    email: z.email('Enter a valid email address'),
+    name: z
+      .string()
+      .trim()
+      .min(2, 'Name must be at least 2 characters')
+      .max(30, 'Name must be 30 characters or fewer'),
+    email: z.email('Enter a valid email address').max(50, 'Email must be 50 characters or fewer'),
     password,
     confirmPassword: z.string().min(1, 'Confirm your password'),
-    acceptTerms: z.boolean().refine((value) => value, {
-      error: 'You must accept the terms to continue',
-    }),
   })
   .refine((values) => values.password === values.confirmPassword, {
     message: 'Passwords do not match',

@@ -1,10 +1,10 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { Controller, useForm, useWatch } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AlertCircle, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { AuthShell } from '@/features/auth/components/auth-shell'
@@ -24,14 +24,17 @@ function SignupPage() {
 
   const form = useForm<SignupInput, unknown, SignupPayload>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { name: '', email: '', password: '', confirmPassword: '', acceptTerms: false },
+    defaultValues: { name: '', email: '', password: '', confirmPassword: '' },
   })
 
   const password = useWatch({ control: form.control, name: 'password' })
 
   const submit = form.handleSubmit(async (values) => {
-    await signup.mutateAsync(values)
-    await navigate({ to: '/tasks', replace: true })
+    const user = await signup.mutateAsync(values)
+    // Signup issues no token, so the account exists but the session does not —
+    // send them to sign in rather than to a guard that would bounce them back.
+    toast.success('Account created', { description: `Sign in as ${user.email} to continue.` })
+    await navigate({ to: '/login', replace: true })
   })
 
   return (
@@ -109,25 +112,6 @@ function SignupPage() {
             />
             <FieldError errors={[form.formState.errors.confirmPassword]} />
           </Field>
-
-          <Field orientation="horizontal" data-invalid={Boolean(form.formState.errors.acceptTerms)}>
-            <Controller
-              control={form.control}
-              name="acceptTerms"
-              render={({ field }) => (
-                <Checkbox
-                  id="acceptTerms"
-                  checked={field.value}
-                  onCheckedChange={(checked) => field.onChange(checked === true)}
-                  onBlur={field.onBlur}
-                />
-              )}
-            />
-            <FieldLabel htmlFor="acceptTerms" className="text-sm font-normal">
-              I agree to the Terms of Service and Privacy Policy
-            </FieldLabel>
-          </Field>
-          <FieldError errors={[form.formState.errors.acceptTerms]} />
         </FieldGroup>
 
         <Button type="submit" size="lg" className="h-10 w-full" disabled={signup.isPending}>
