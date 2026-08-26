@@ -1,4 +1,5 @@
-import { api } from '@/lib/api/client'
+import axios from 'axios'
+import { api, getApiErrorMessage } from '@/lib/api/client'
 import {
   authResponseSchema,
   userSchema,
@@ -11,11 +12,14 @@ import {
 } from './schemas'
 
 export const authApi = {
+  /**
+   * `LoginDto` on the backend is `{ email, password }` only — `rememberMe` is a
+   * client-side concern and is deliberately not sent.
+   */
   async login(payload: LoginPayload): Promise<AuthResponse> {
     const { data } = await api.post('/auth/login', {
       email: payload.email,
       password: payload.password,
-      rememberMe: payload.rememberMe,
     })
     return authResponseSchema.parse(data)
   },
@@ -31,10 +35,6 @@ export const authApi = {
       password: payload.password,
     })
     return userSchema.parse(data)
-  },
-
-  async logout(): Promise<void> {
-    await api.post('/auth/logout')
   },
 
   async me(): Promise<User> {
@@ -54,4 +54,17 @@ export const authApi = {
     })
     return data
   },
+}
+
+/**
+ * A rejected sign-in carries no body worth showing — the message has to come
+ * from the status code, and it stays vague on purpose so the form never reveals
+ * whether the email exists.
+ */
+export function getLoginErrorMessage(error: unknown) {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status
+    if (status === 401 || status === 403) return 'Email or password is incorrect.'
+  }
+  return getApiErrorMessage(error)
 }

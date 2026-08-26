@@ -182,7 +182,7 @@ src/
 │   └── mode-toggle.tsx
 ├── features/
 │   ├── auth/
-│   │   ├── components/     auth-shell, password-input, password-strength
+│   │   ├── components/     auth-shell, password-input
 │   │   ├── api.ts          axios calls, responses parsed with zod
 │   │   ├── queries.ts      TanStack Query mutations
 │   │   ├── schemas.ts      zod schemas + inferred types
@@ -244,23 +244,26 @@ Notes that shape the client:
   the owner from the authenticated principal, drop it from `tasksApi.create`.
 - `DELETE` answers `201` with a plain-text body; the client ignores both.
 
-### Auth — not implemented yet
+### Auth — signup and login are live
 
-`AuthServiceImpl` is empty and `AuthController` returns the string `"OK"`, so
-`authResponseSchema.parse()` throws and **login cannot succeed**. The auth screens are
-left as-is, written against the contract below, and will start working once the backend
-returns it:
+| Method | Path                    | Request                     | Response                                                   |
+| ------ | ----------------------- | --------------------------- | ---------------------------------------------------------- |
+| `POST` | `/auth/signup`          | `{ name, email, password }` | `201 user` — **no token**, the visitor still has to log in |
+| `POST` | `/auth/login`           | `{ email, password }`       | `200 { user, accessToken }`                                |
+| `POST` | `/auth/forgot-password` | `{ email }`                 | not implemented yet                                        |
+| `POST` | `/auth/reset-password`  | `{ token, password }`       | not implemented yet                                        |
 
-| Method | Path                    | Request                           | Response                                                |
-| ------ | ----------------------- | --------------------------------- | ------------------------------------------------------- |
-| `POST` | `/auth/signup`          | `{ name, email, password }`       | `201 { accessToken, user }`                             |
-| `POST` | `/auth/login`           | `{ email, password, rememberMe }` | `200 { accessToken, user }` · `401` on bad credentials  |
-| `POST` | `/auth/logout`          | —                                 | `204`                                                   |
-| `GET`  | `/auth/me`              | —                                 | `200 user`                                              |
-| `POST` | `/auth/forgot-password` | `{ email }`                       | `200 { message }` — always 200, even for unknown emails |
-| `POST` | `/auth/reset-password`  | `{ token, password }`             | `200 { message }` · `400` on expired token              |
+Notes that shape the client:
 
-Also note `POST /auth/signup` — the backend currently maps it as `@GetMapping`.
+- **`LoginDto` is `{ email, password }` only.** "Keep me signed in" is a client-side idea;
+  `authApi.login` does not send it.
+- **The token is a JJWT HS256 string** whose `sub` is the user's UUID, signed with
+  `app.jwt.secret` and valid for `app.jwt.expiration-ms` (1h by default).
+- **There is no `/auth/logout`.** The JWT is stateless, so `useLogout()` is a plain
+  callback that drops the session and clears the query cache — no request, nothing to fail.
+- **There is no `/auth/me`.** The user object comes from the login response and lives in
+  `sessionStore` for the rest of the session; `authApi.me` is kept for the day it exists.
+- `UserResponse` also carries `updatedAt`; `userSchema` ignores it.
 
 ### Errors
 
@@ -395,9 +398,11 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
 
 ## 12. Known gaps (intentional)
 
-- **Login does not work.** The backend auth endpoints are stubs returning `"OK"`, so no
-  token is ever issued and the route guard keeps every visitor on `/login`. Nothing in the
-  task module can be exercised end-to-end until they are implemented.
+- **Login issues a token, but no endpoint accepts it yet.** `SecurityConfig` has no filter
+  that reads `Authorization: Bearer …`, so every `/task/**` call is still rejected with
+  `401` — which the response interceptor treats as an expired session and bounces the user
+  back to `/login`. Signing in works; staying signed in needs the backend filter.
+- **Forgot / reset password have no backend.** Both screens call routes that do not exist.
 - **Overdue tasks cannot be edited or toggled.** The backend validates `dueDate` with
   `@Future` on update as well as create, so any `PUT` carrying a past deadline is
   rejected — including a plain status toggle. Removing `@Future` from `UpdateTaskDto` (or

@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useForm, useWatch } from 'react-hook-form'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { AlertCircle, ArrowLeft, KeyRound, Loader2 } from 'lucide-react'
@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { AuthShell } from '@/features/auth/components/auth-shell'
 import { PasswordInput } from '@/features/auth/components/password-input'
-import { PasswordStrength } from '@/features/auth/components/password-strength'
 import { useResetPassword } from '@/features/auth/queries'
 import {
   resetPasswordSchema,
@@ -33,8 +32,6 @@ function ResetPasswordPage() {
     resolver: zodResolver(resetPasswordSchema),
     defaultValues: { token: token ?? '', password: '', confirmPassword: '' },
   })
-
-  const password = useWatch({ control: form.control, name: 'password' })
 
   const submit = form.handleSubmit(async (values) => {
     await resetPassword.mutateAsync(values)
@@ -98,13 +95,12 @@ function ResetPasswordPage() {
             <PasswordInput
               id="password"
               autoComplete="new-password"
-              placeholder="At least 8 characters"
+              placeholder="At least 6 characters"
               autoFocus
               className="h-10"
               aria-invalid={Boolean(form.formState.errors.password)}
               {...form.register('password')}
             />
-            <PasswordStrength value={password ?? ''} />
             <FieldError errors={[form.formState.errors.password]} />
           </Field>
 

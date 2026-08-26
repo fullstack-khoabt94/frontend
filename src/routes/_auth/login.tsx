@@ -11,8 +11,8 @@ import { Input } from '@/components/ui/input'
 import { AuthShell } from '@/features/auth/components/auth-shell'
 import { PasswordInput } from '@/features/auth/components/password-input'
 import { useLogin } from '@/features/auth/queries'
+import { getLoginErrorMessage } from '@/features/auth/api'
 import { loginSchema, type LoginInput, type LoginPayload } from '@/features/auth/schemas'
-import { getApiErrorMessage } from '@/lib/api/client'
 
 export const Route = createFileRoute('/_auth/login')({
   validateSearch: z.object({ redirect: z.string().optional() }),
@@ -30,8 +30,20 @@ function LoginPage() {
   })
 
   const submit = form.handleSubmit(async (values) => {
-    await login.mutateAsync(values)
-    await navigate({ to: redirect ?? '/tasks', replace: true })
+    try {
+      await login.mutateAsync(values)
+    } catch {
+      // The alert above already renders the reason; rethrowing here would only
+      // surface as an unhandled rejection.
+      return
+    }
+    // `redirect` is a fully built href captured by the /_app guard, so it keeps
+    // the filter / search / sort params the visitor was on.
+    if (redirect) {
+      await navigate({ href: redirect, replace: true })
+      return
+    }
+    await navigate({ to: '/tasks', replace: true })
   })
 
   return (
@@ -51,7 +63,7 @@ function LoginPage() {
         {login.isError && (
           <Alert variant="destructive">
             <AlertCircle className="size-4" />
-            <AlertDescription>{getApiErrorMessage(login.error)}</AlertDescription>
+            <AlertDescription>{getLoginErrorMessage(login.error)}</AlertDescription>
           </Alert>
         )}
 

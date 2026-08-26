@@ -22,7 +22,7 @@ export function AppHeader() {
   const logout = useLogout()
 
   const handleLogout = async () => {
-    await logout.mutateAsync().catch(() => undefined)
+    logout()
     await router.navigate({ to: '/login', replace: true })
   }
 

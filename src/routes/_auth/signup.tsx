@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useForm, useWatch } from 'react-hook-form'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -9,7 +9,6 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field
 import { Input } from '@/components/ui/input'
 import { AuthShell } from '@/features/auth/components/auth-shell'
 import { PasswordInput } from '@/features/auth/components/password-input'
-import { PasswordStrength } from '@/features/auth/components/password-strength'
 import { useSignup } from '@/features/auth/queries'
 import { signupSchema, type SignupInput, type SignupPayload } from '@/features/auth/schemas'
 import { getApiErrorMessage } from '@/lib/api/client'
@@ -26,8 +25,6 @@ function SignupPage() {
     resolver: zodResolver(signupSchema),
     defaultValues: { name: '', email: '', password: '', confirmPassword: '' },
   })
-
-  const password = useWatch({ control: form.control, name: 'password' })
 
   const submit = form.handleSubmit(async (values) => {
     const user = await signup.mutateAsync(values)
@@ -91,12 +88,11 @@ function SignupPage() {
             <PasswordInput
               id="password"
               autoComplete="new-password"
-              placeholder="At least 8 characters"
+              placeholder="At least 6 characters"
               className="h-10"
               aria-invalid={Boolean(form.formState.errors.password)}
               {...form.register('password')}
             />
-            <PasswordStrength value={password ?? ''} />
             <FieldError errors={[form.formState.errors.password]} />
           </Field>
 

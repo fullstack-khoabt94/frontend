@@ -15,11 +15,7 @@ export const authResponseSchema = z.object({
 })
 export type AuthResponse = z.infer<typeof authResponseSchema>
 
-const password = z
-  .string()
-  .min(8, 'Password must be at least 8 characters')
-  .regex(/[a-zA-Z]/, 'Password must contain a letter')
-  .regex(/[0-9]/, 'Password must contain a number')
+const password = z.string().min(6, 'Password must be at least 6 characters')
 
 export const loginSchema = z.object({
   email: z.email('Enter a valid email address'),
@@ -29,9 +25,7 @@ export const loginSchema = z.object({
 export type LoginInput = z.input<typeof loginSchema>
 export type LoginPayload = z.output<typeof loginSchema>
 
-// Lengths mirror CreateUserDto on the backend (name ≤ 30, email ≤ 50). The
-// password rules are deliberately stricter than the server's @NotBlank —
-// tightening the client never breaks a laxer server.
+// Lengths mirror CreateUserDto on the backend (name ≤ 30, email ≤ 50).
 export const signupSchema = z
   .object({
     name: z
@@ -67,14 +61,3 @@ export const resetPasswordSchema = z
   })
 export type ResetPasswordInput = z.input<typeof resetPasswordSchema>
 export type ResetPasswordPayload = z.output<typeof resetPasswordSchema>
-
-/** Rough 0-4 score used only to render the strength meter on Signup / Reset. */
-export function passwordStrength(value: string) {
-  if (!value) return 0
-  let score = 0
-  if (value.length >= 8) score += 1
-  if (value.length >= 12) score += 1
-  if (/[a-z]/.test(value) && /[A-Z]/.test(value)) score += 1
-  if (/[0-9]/.test(value) && /[^a-zA-Z0-9]/.test(value)) score += 1
-  return score
-}

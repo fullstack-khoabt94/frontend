@@ -1,6 +1,5 @@
+import { useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
-import { getApiErrorMessage } from '@/lib/api/client'
 import { authApi } from './api'
 import { sessionStore } from './session'
 import type {
@@ -16,9 +15,15 @@ function persist(result: AuthResponse) {
 }
 
 export function useLogin() {
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (payload: LoginPayload) => authApi.login(payload),
-    onSuccess: persist,
+    onSuccess: (result) => {
+      persist(result)
+      // Whatever the previous visitor left in the cache belongs to their token,
+      // not to this one.
+      client.clear()
+    },
   })
 }
 
@@ -44,17 +49,16 @@ export function useResetPassword() {
   })
 }
 
+/**
+ * The JWT is stateless and there is no `/auth/logout` on the backend, so signing
+ * out is a local operation: drop the token and wipe the cache it was fetched
+ * with. It returns a plain callback rather than a mutation — there is nothing
+ * to await, fail or retry.
+ */
 export function useLogout() {
   const client = useQueryClient()
-  return useMutation({
-    mutationFn: () => authApi.logout(),
-    // The session is dropped either way — a failed logout call must never
-    // strand the user in a signed-in shell.
-    onSettled: () => {
-      sessionStore.clear()
-      client.clear()
-    },
-    onError: (error) =>
-      toast.message('Signed out locally', { description: getApiErrorMessage(error) }),
-  })
+  return useCallback(() => {
+    sessionStore.clear()
+    client.clear()
+  }, [client])
 }
