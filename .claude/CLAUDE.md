@@ -93,17 +93,29 @@ and forward the search params from `tasksApi.list` instead.
 
 ### Session
 
-`sessionStore` (`features/auth/session.ts`) holds `{ accessToken, user }` **in memory
-only**.
+`sessionStore` (`features/auth/session.ts`) holds `{ accessToken, user }` in memory and is
+the only module that touches browser storage.
 
-**Nothing in this codebase writes to `localStorage`, `sessionStorage` or cookies.** That is
-deliberate, not an oversight — do not add browser storage without being asked. A reload
-signs the user out until persistence is designed alongside the real backend (httpOnly
-cookie, refresh-token exchange, whatever the API decides). Hydrating `state` in that one
-module is the only change the rest of the app needs.
+**"Keep me signed in" is what decides persistence.** `sessionStore.set(session, remember)`
+mirrors the session into a `taskflow_session` cookie when the login form's `rememberMe` is
+ticked, and deletes that cookie when it is not — so signing in without the tick can never
+inherit a cookie an earlier session left behind. `sessionStore.hydrate()` runs in
+`main.tsx` **before the router mounts**, because the `beforeLoad` guards read the session
+synchronously; hydrating later would bounce a remembered visitor to `/login` and back.
 
-The same rule covers the theme: `ThemeProvider` keeps the light/dark choice in memory and
-defaults to `light`.
+The cookie's `Max-Age` is the access token's own `exp` (decoded from the JWT), capped at 30
+days for the case where `exp` cannot be read. With a 1h token and no refresh exchange,
+"keep me signed in" therefore means "survive reloads for the life of the token" — the 401
+interceptor clears both the store and the cookie once it lapses.
+
+**This cookie is JS-readable, not httpOnly**, so it is exposed to XSS the same way the
+in-memory token already is. The safe shape is an httpOnly cookie plus a refresh-token
+exchange, which the backend does not offer; when it does, `hydrate` and `save` in that one
+module are the only places that change.
+
+`localStorage` and `sessionStorage` are still unused — do not add them. The theme is also
+still memory-only: `ThemeProvider` keeps the light/dark choice for the session and defaults
+to `light`.
 
 ---
 
@@ -186,7 +198,7 @@ src/
 │   │   ├── api.ts          axios calls, responses parsed with zod
 │   │   ├── queries.ts      TanStack Query mutations
 │   │   ├── schemas.ts      zod schemas + inferred types
-│   │   └── session.ts      in-memory store: token + user
+│   │   └── session.ts      token + user store, cookie-backed when "remember me"
 │   └── tasks/
 │       ├── components/     task-item, dialogs, filter bar, summary, empty states
 │       ├── api.ts
@@ -256,7 +268,8 @@ Notes that shape the client:
 Notes that shape the client:
 
 - **`LoginDto` is `{ email, password }` only.** "Keep me signed in" is a client-side idea;
-  `authApi.login` does not send it.
+  `authApi.login` does not send it — it only decides whether `sessionStore` writes its
+  cookie. See section 2.
 - **The token is a JJWT HS256 string** whose `sub` is the user's UUID, signed with
   `app.jwt.secret` and valid for `app.jwt.expiration-ms` (1h by default).
 - **There is no `/auth/logout`.** The JWT is stateless, so `useLogout()` is a plain
@@ -353,7 +366,8 @@ Rules that keep it working:
 - **`form` component does not exist** in the `radix-nova` style — use `Field`, `FieldLabel`,
   `FieldError` and `FieldGroup` with React Hook Form's `register` / `Controller`.
 - Prefer `Controller` / `useWatch` over `form.watch()`.
-- **No browser storage.** See section 2.
+- **The only browser storage is the session cookie**, written from `features/auth/session.ts`
+  through `lib/cookies.ts`. No `localStorage`, no `sessionStorage`. See section 2.
 
 ---
 
@@ -412,9 +426,11 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
   Fine for small lists; revisit when the backend paginates.
 - **Tasks are not scoped to a user.** `getTasks()` has no `WHERE user_id = ?`, so once
   real accounts exist everyone will see everyone's tasks.
-- No session persistence — `accessToken` lives in memory, so a reload returns the user to
-  `/login`. See section 2.
-- No refresh-token rotation. If the backend issues refresh tokens, add a response
-  interceptor that retries once on 401.
+- **Session persistence is client-side only.** "Keep me signed in" survives a reload via a
+  JS-readable cookie, not an httpOnly one, because the backend neither sets a cookie nor
+  issues refresh tokens. Without the tick, a reload still returns the user to `/login`.
+  See section 2.
+- No refresh-token rotation, so a remembered session still dies with the 1h token. If the
+  backend issues refresh tokens, add a response interceptor that retries once on 401.
 - No account/profile page — the header menu only offers logout.
 - No tests — the wiring is deliberately thin so it can be tested once the API is real.

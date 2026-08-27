@@ -10,16 +10,18 @@ import type {
   SignupPayload,
 } from './schemas'
 
-function persist(result: AuthResponse) {
-  sessionStore.set({ accessToken: result.accessToken, user: result.user })
+function persist(result: AuthResponse, remember: boolean) {
+  sessionStore.set({ accessToken: result.accessToken, user: result.user }, remember)
 }
 
 export function useLogin() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (payload: LoginPayload) => authApi.login(payload),
-    onSuccess: (result) => {
-      persist(result)
+    onSuccess: (result, payload) => {
+      // `rememberMe` never reaches the backend — it only decides whether the
+      // session is mirrored into a cookie and survives a reload.
+      persist(result, payload.rememberMe)
       // Whatever the previous visitor left in the cache belongs to their token,
       // not to this one.
       client.clear()
