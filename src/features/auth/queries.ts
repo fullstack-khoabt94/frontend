@@ -11,7 +11,14 @@ import type {
 } from './schemas'
 
 function persist(result: AuthResponse, remember: boolean) {
-  sessionStore.set({ accessToken: result.accessToken, user: result.user }, remember)
+  sessionStore.set(
+    {
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+    },
+    remember,
+  )
 }
 
 export function useLogin() {

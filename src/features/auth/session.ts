@@ -1,21 +1,23 @@
 import { useSyncExternalStore } from 'react'
 import { deleteCookie, readCookie, writeCookie } from '@/lib/cookies'
-import { authResponseSchema, type User } from './schemas'
+import { storedSessionSchema, type User } from './schemas'
 
 export type Session = {
   accessToken: string | null
+  /** Exchanged for a new access token by `refresh.ts` once the access one dies. */
+  refreshToken: string | null
   user: User | null
 }
 
-const EMPTY: Session = { accessToken: null, user: null }
+const EMPTY: Session = { accessToken: null, refreshToken: null, user: null }
 
 /** Only written when the visitor ticked "Keep me signed in". */
 const COOKIE_NAME = 'taskflow_session'
 
 /**
- * Ceiling on the cookie's lifetime. The access token is short-lived (1h by
- * default) and there is no refresh exchange, so the real limit is almost always
- * the token's own `exp`; this only caps the fallback when `exp` is unreadable.
+ * Ceiling on the cookie's lifetime, for the case where neither token's `exp` can
+ * be read. Normally the refresh token's own expiry is the limit — it is the one
+ * that decides how long a remembered session can be revived (24h by default).
  */
 const MAX_REMEMBER_SECONDS = 30 * 24 * 60 * 60
 
@@ -50,25 +52,42 @@ function readTokenExpiry(token: string): number | null {
 }
 
 /**
- * Seconds the token is still good for. `null` means "unknown" — the cookie then
- * falls back to {@link MAX_REMEMBER_SECONDS} and the 401 interceptor is what
- * eventually clears it.
+ * Seconds the token is still good for. `null` means "unknown" — the caller then
+ * falls back to {@link MAX_REMEMBER_SECONDS} and the 401 handling is what
+ * eventually clears the session.
  */
 function secondsUntilExpiry(token: string): number | null {
   const exp = readTokenExpiry(token)
   return exp === null ? null : exp - Math.floor(Date.now() / 1000)
 }
 
+/** Both backend tokens are JWTs, so `exp` is readable without asking the API. */
+export function isExpired(token: string) {
+  const remaining = secondsUntilExpiry(token)
+  return remaining !== null && remaining <= 0
+}
+
 function save(session: Session) {
   if (!session.accessToken || !session.user) return
-  const remaining = secondsUntilExpiry(session.accessToken)
-  // An already-expired token is not worth a round trip on the next reload.
+  // The refresh token outlives the access token and is what makes a restored
+  // session usable, so it sets the cookie's lifetime; without one the cookie is
+  // worth no more than the access token itself.
+  const remaining = secondsUntilExpiry(session.refreshToken ?? session.accessToken)
   if (remaining !== null && remaining <= 0) return
   writeCookie(
     COOKIE_NAME,
-    JSON.stringify({ accessToken: session.accessToken, user: session.user }),
+    JSON.stringify({
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      user: session.user,
+    }),
     { maxAge: Math.min(remaining ?? MAX_REMEMBER_SECONDS, MAX_REMEMBER_SECONDS) },
   )
+}
+
+/** Re-writes the cookie only if there already is one — never creates it. */
+function persistIfRemembered() {
+  if (readCookie(COOKIE_NAME)) save(state)
 }
 
 /**
@@ -83,9 +102,9 @@ function save(session: Session) {
  * reload signs them out, exactly as before.
  *
  * The cookie is readable by JavaScript, so it is XSS-exposed the same way the
- * in-memory token already is. The safe shape is an httpOnly cookie plus a
- * refresh-token exchange, which the backend does not offer yet; when it does,
- * `hydrate` and `save` are the only two places that change.
+ * in-memory token already is — and it now carries the longer-lived refresh
+ * token too, which raises the stakes. The safe shape is an httpOnly cookie set
+ * by the backend; until it sets one, this module is the only place that changes.
  */
 export const sessionStore = {
   getState: () => state,
@@ -107,8 +126,19 @@ export const sessionStore = {
 
   setUser(user: User) {
     state = { ...state, user }
-    // Keep the cookie in step, but never create one that was not asked for.
-    if (readCookie(COOKIE_NAME)) save(state)
+    persistIfRemembered()
+    emit()
+  },
+
+  /**
+   * Installs the tokens from a refresh exchange. It keeps the session's existing
+   * persistence rather than taking a `remember` flag: whether this visitor asked
+   * to be kept signed in was decided at login, and a refresh must not change it.
+   */
+  applyRefresh(next: Session) {
+    state = next
+    tokenIsUnverified = false
+    persistIfRemembered()
     emit()
   },
 
@@ -134,18 +164,22 @@ export const sessionStore = {
    * What it restores is provisional — the expiry check here is local, so the
    * session is flagged unverified until `ensureSessionVerified()` has had the
    * backend confirm the token.
+   *
+   * An expired **access** token is not a reason to drop the session: that is
+   * exactly what the refresh token is for, and the first request will exchange
+   * it. Only a session that can no longer produce a usable token is discarded.
    */
   hydrate() {
     const raw = readCookie(COOKIE_NAME)
     if (!raw) return
     try {
-      const { accessToken, user } = authResponseSchema.parse(JSON.parse(raw))
-      const remaining = secondsUntilExpiry(accessToken)
-      if (remaining !== null && remaining <= 0) {
+      const { accessToken, refreshToken, user } = storedSessionSchema.parse(JSON.parse(raw))
+      const revivable = refreshToken ? !isExpired(refreshToken) : !isExpired(accessToken)
+      if (!revivable) {
         deleteCookie(COOKIE_NAME)
         return
       }
-      state = { accessToken, user }
+      state = { accessToken, refreshToken, user }
       tokenIsUnverified = true
       emit()
     } catch {

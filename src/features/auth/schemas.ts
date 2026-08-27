@@ -9,11 +9,25 @@ export const userSchema = z.object({
 })
 export type User = z.infer<typeof userSchema>
 
+/** `LoginResponse` on the backend — returned by both /auth/login and /auth/refresh-token. */
 export const authResponseSchema = z.object({
   accessToken: z.string(),
+  refreshToken: z.string(),
   user: userSchema,
 })
 export type AuthResponse = z.infer<typeof authResponseSchema>
+
+/**
+ * What the session cookie holds. Deliberately its own schema rather than a reuse
+ * of `authResponseSchema`: a new required field on the login response would
+ * otherwise invalidate every cookie already in a browser, signing everyone out.
+ * `refreshToken` is nullable for cookies written before it existed.
+ */
+export const storedSessionSchema = z.object({
+  accessToken: z.string(),
+  refreshToken: z.string().nullable().default(null),
+  user: userSchema,
+})
 
 const password = z.string().min(6, 'Password must be at least 6 characters')
 

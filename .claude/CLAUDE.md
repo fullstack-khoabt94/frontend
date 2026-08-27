@@ -93,8 +93,8 @@ and forward the search params from `tasksApi.list` instead.
 
 ### Session
 
-`sessionStore` (`features/auth/session.ts`) holds `{ accessToken, user }` in memory and is
-the only module that touches browser storage.
+`sessionStore` (`features/auth/session.ts`) holds `{ accessToken, refreshToken, user }` in
+memory and is the only module that touches browser storage.
 
 **"Keep me signed in" is what decides persistence.** `sessionStore.set(session, remember)`
 mirrors the session into a `taskflow_session` cookie when the login form's `rememberMe` is
@@ -103,10 +103,38 @@ inherit a cookie an earlier session left behind. `sessionStore.hydrate()` runs i
 `main.tsx` **before the router mounts**, because the `beforeLoad` guards read the session
 synchronously; hydrating later would bounce a remembered visitor to `/login` and back.
 
-The cookie's `Max-Age` is the access token's own `exp` (decoded from the JWT), capped at 30
-days for the case where `exp` cannot be read. With a 1h token and no refresh exchange,
-"keep me signed in" therefore means "survive reloads for the life of the token" — the 401
-interceptor clears both the store and the cookie once it lapses.
+**Both tokens are JWTs, so the client reads `exp` itself** — `RefreshTokenServicesImpl`
+signs the refresh token with `Jwts.builder().expiration(...)` just as `JwtUtils` does the
+access token. The backend does not need to send expiry times alongside them, and it should
+not: a second copy of the same fact can drift from the token it describes.
+
+The cookie's `Max-Age` therefore comes from the **refresh** token's `exp` (24h by default),
+not the access token's (1h) — the refresh token is what decides how long a session can be
+revived. The 30-day constant is only the fallback for a token whose `exp` cannot be read.
+For the same reason `hydrate()` does **not** discard a session whose access token has
+expired: that is exactly the case the refresh token exists for.
+
+### Refreshing
+
+`refreshAccessToken()` (`features/auth/refresh.ts`) posts the refresh token to
+`POST /auth/refresh-token` and installs the returned pair via `sessionStore.applyRefresh()`.
+Three things about it are load-bearing:
+
+- **It is single-flight.** A page fires several requests at once, so one expired access
+  token produces a burst of 401s. Without the shared in-flight promise each would start its
+  own exchange — and if the backend ever rotates refresh tokens, all but the first would be
+  racing against an already-consumed one.
+- **It uses bare `axios`, not the `api` instance.** The interceptor that calls it lives on
+  `api`; routing the exchange back through `api` recurses the moment the refresh itself
+  answers 401.
+- **`applyRefresh` does not take a `remember` flag.** Whether this visitor wanted to be kept
+  signed in was decided at login, and a refresh must not silently change it — so it rewrites
+  the cookie only if one already exists.
+
+The response interceptor in `lib/api/client.ts` drives it: a `401` on a non-public path
+triggers one refresh and one replay of the original request, guarded by
+`config.retriedAfterRefresh` so a second 401 (now carrying a seconds-old token) cannot loop.
+Only when the refresh is _rejected_ does the session end.
 
 **A restored token is provisional until the backend confirms it.** Decoding `exp` locally
 only proves the token has not expired; the signing secret may have rotated, the account may
@@ -116,16 +144,18 @@ the **root** route's `beforeLoad` — ahead of the guards on `/`, `/_auth` and `
 protected page renders on a token the API would reject. It runs at most once per page load
 and returns `undefined` (not a resolved promise) once there is nothing to check.
 
-The two failure modes are deliberately different: a `401`/`403` means the token is dead, so
-the session and its cookie are cleared and the `/_app` guard redirects to `/login`. Anything
-else — network down, 500 — says nothing about the token, so the session survives and the
-next navigation retries. Do not collapse these into one `catch`; signing a user out because
-their wifi blipped is the worse bug.
+**"Server answered" and "server unreachable" are handled differently everywhere**, and the
+distinction must not be collapsed into one `catch`. A response that is not a usable token
+ends the session; no response at all says nothing about the token, so the session survives
+and the next attempt retries. Signing a user out because their wifi blipped is the worse
+bug. Note the asymmetry this forces on `refresh.ts`: it cannot key off the status code,
+because the backend reports a _spent_ refresh token as `401` but an _unknown_ one as `500`
+(the `.orElseThrow()` in `RefreshTokenServicesImpl#checkValidRefreshToken`).
 
 **This cookie is JS-readable, not httpOnly**, so it is exposed to XSS the same way the
-in-memory token already is. The safe shape is an httpOnly cookie plus a refresh-token
-exchange, which the backend does not offer; when it does, `hydrate` and `save` in that one
-module are the only places that change.
+in-memory token already is — and it now carries the 24h refresh token as well as the 1h
+access token, which raises the stakes. The safe shape is the backend setting an httpOnly
+cookie itself; until it does, `session.ts` is the only module that changes.
 
 `localStorage` and `sessionStorage` are still unused — do not add them. The theme is also
 still memory-only: `ThemeProvider` keeps the light/dark choice for the session and defaults
@@ -212,7 +242,8 @@ src/
 │   │   ├── api.ts          axios calls, responses parsed with zod
 │   │   ├── queries.ts      TanStack Query mutations
 │   │   ├── schemas.ts      zod schemas + inferred types
-│   │   ├── session.ts      token + user store, cookie-backed when "remember me"
+│   │   ├── refresh.ts      single-flight access-token exchange
+│   │   ├── session.ts      tokens + user store, cookie-backed when "remember me"
 │   │   └── verify-session.ts  boot-time check of a restored token
 │   └── tasks/
 │       ├── components/     task-item, dialogs, filter bar, summary, empty states
@@ -276,20 +307,31 @@ Notes that shape the client:
 | Method | Path                    | Request                     | Response                                                   |
 | ------ | ----------------------- | --------------------------- | ---------------------------------------------------------- |
 | `POST` | `/auth/signup`          | `{ name, email, password }` | `201 user` — **no token**, the visitor still has to log in |
-| `POST` | `/auth/login`           | `{ email, password }`       | `200 { user, accessToken }`                                |
+| `POST` | `/auth/login`           | `{ email, password }`       | `200 LoginResponse`                                        |
+| `POST` | `/auth/refresh-token`   | `{ refreshToken }`          | `200 LoginResponse`                                        |
 | `POST` | `/auth/forgot-password` | `{ email }`                 | not implemented yet                                        |
 | `POST` | `/auth/reset-password`  | `{ token, password }`       | not implemented yet                                        |
 | `GET`  | `/user/me`              | —                           | `200 user` — the authenticated principal                   |
+
+`LoginResponse` is `{ user, accessToken, refreshToken }` — the same envelope from login and
+from refresh, which is why `authResponseSchema` parses both.
 
 Notes that shape the client:
 
 - **`LoginDto` is `{ email, password }` only.** "Keep me signed in" is a client-side idea;
   `authApi.login` does not send it — it only decides whether `sessionStore` writes its
   cookie. See section 2.
-- **The token is a JJWT HS256 string** whose `sub` is the user's UUID, signed with
-  `app.jwt.secret` and valid for `app.jwt.expiration-ms` (1h by default).
-- **There is no `/auth/logout`.** The JWT is stateless, so `useLogout()` is a plain
-  callback that drops the session and clears the query cache — no request, nothing to fail.
+- **Both tokens are JJWT HS256 strings** whose `sub` is the user's UUID. The access token is
+  signed with `app.jwt.secret` for `app.jwt.expiration-ms` (1h); the refresh token with
+  `app.refresh-token.secret` for `app.refresh-token.expiration-ms` (24h) and is also stored
+  in the `refresh_tokens` table, so the backend can revoke it.
+- **Refresh does not rotate.** `/auth/refresh-token` echoes the same refresh token back with
+  a new access token, and does not revoke the old one. `refresh.ts` re-saves whatever it is
+  given, so rotation on the backend needs no client change.
+- **There is no `/auth/logout`.** `useLogout()` is a plain callback that drops the session
+  and clears the query cache. Note the consequence: the refresh token row stays valid
+  server-side after signing out — `RefreshTokenServices#revokeRefreshToken` exists but no
+  endpoint calls it.
 - **The identity endpoint is `GET /user/me`, not `/auth/me`** — `UserController` reads the
   UUID off the `@AuthenticationPrincipal`. `authApi.me()` is the client for it, and it is
   the only way to ask the backend whether a token is still good, which is exactly what the
@@ -448,10 +490,14 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
 - **Tasks are not scoped to a user.** `getTasks()` has no `WHERE user_id = ?`, so once
   real accounts exist everyone will see everyone's tasks.
 - **Session persistence is client-side only.** "Keep me signed in" survives a reload via a
-  JS-readable cookie, not an httpOnly one, because the backend neither sets a cookie nor
-  issues refresh tokens. Without the tick, a reload still returns the user to `/login`.
-  See section 2.
-- No refresh-token rotation, so a remembered session still dies with the 1h token. If the
-  backend issues refresh tokens, add a response interceptor that retries once on 401.
+  JS-readable cookie, not an httpOnly one, because the backend does not set a cookie of its
+  own. Without the tick, a reload still returns the user to `/login`. See section 2.
+- **Refresh tokens are never rotated or revoked on use**, so one leaked refresh token is
+  good for its full 24h no matter how many times it is spent. The client is already shaped
+  for rotation (`applyRefresh` stores whatever comes back); the change is backend-side.
+- **`app.refresh-token` reads the access token's env vars.** Both `secret` and
+  `expiration-ms` default to `${JWT_SECRET:…}` / `${JWT_EXPIRATION_MS:…}` in
+  `application.yml`, so setting either variable silently gives the refresh token the access
+  token's secret and 1h lifetime — collapsing the two-token design back into one.
 - No account/profile page — the header menu only offers logout.
 - No tests — the wiring is deliberately thin so it can be tested once the API is real.

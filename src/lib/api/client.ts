@@ -1,16 +1,19 @@
 import axios, { type AxiosError } from 'axios'
 import { env } from '@/lib/env'
+import { refreshAccessToken } from '@/features/auth/refresh'
 import { sessionStore } from '@/features/auth/session'
 
 declare module 'axios' {
   export interface AxiosRequestConfig {
     /**
-     * Opt a request out of the 401 handler below. For callers that treat a
-     * rejected token as a normal outcome and clear the session themselves — a
-     * hard `window.location` redirect underneath them would only cost a second
-     * full page load.
+     * Opt a request out of the redirect below. For callers that treat a rejected
+     * token as a normal outcome and handle it themselves — a hard
+     * `window.location` redirect underneath them would only cost a second full
+     * page load. It does not opt out of the refresh attempt.
      */
     skipAuthRedirect?: boolean
+    /** Set by the interceptor so one request can only be replayed once. */
+    retriedAfterRefresh?: boolean
   }
 }
 
@@ -32,21 +35,47 @@ api.interceptors.request.use((config) => {
 const PUBLIC_PATHS = [
   '/auth/login',
   '/auth/signup',
+  '/auth/refresh-token',
   '/auth/forgot-password',
   '/auth/reset-password',
 ]
 
+function redirectToLogin() {
+  if (typeof window === 'undefined') return
+  if (window.location.pathname.startsWith('/login')) return
+  window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`
+}
+
+/**
+ * A 401 means the access token is gone or expired. Rather than ending the
+ * session on the spot, spend the refresh token on a new one and replay the
+ * request — the visitor never sees the 1h access-token boundary.
+ */
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
-    const url = error.config?.url ?? ''
+  async (error: AxiosError) => {
+    const config = error.config
+    const url = config?.url ?? ''
     const isPublic = PUBLIC_PATHS.some((path) => url.startsWith(path))
-    if (error.response?.status === 401 && !isPublic && !error.config?.skipAuthRedirect) {
-      sessionStore.clear()
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-        window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`
+    if (error.response?.status !== 401 || isPublic || !config) return Promise.reject(error)
+
+    // Only the first 401 per request earns a refresh: a second one, already
+    // carrying a token minted seconds ago, is a real refusal and replaying it
+    // again would loop.
+    if (!config.retriedAfterRefresh && sessionStore.getState().refreshToken) {
+      const outcome = await refreshAccessToken()
+      if (outcome.status === 'refreshed') {
+        config.retriedAfterRefresh = true
+        config.headers.Authorization = `Bearer ${outcome.accessToken}`
+        return api.request(config)
       }
+      // The exchange could not reach the API. That is not evidence the session
+      // ended, so leave it alone and let the caller handle the failure.
+      if (outcome.status === 'unavailable') return Promise.reject(error)
     }
+
+    sessionStore.clear()
+    if (!config.skipAuthRedirect) redirectToLogin()
     return Promise.reject(error)
   },
 )
