@@ -108,6 +108,20 @@ days for the case where `exp` cannot be read. With a 1h token and no refresh exc
 "keep me signed in" therefore means "survive reloads for the life of the token" — the 401
 interceptor clears both the store and the cookie once it lapses.
 
+**A restored token is provisional until the backend confirms it.** Decoding `exp` locally
+only proves the token has not expired; the signing secret may have rotated, the account may
+be gone, the cookie may have been hand-edited. So `hydrate()` flags the session unverified
+and `ensureSessionVerified()` (`features/auth/verify-session.ts`) calls `GET /user/me` from
+the **root** route's `beforeLoad` — ahead of the guards on `/`, `/_auth` and `/_app`, so no
+protected page renders on a token the API would reject. It runs at most once per page load
+and returns `undefined` (not a resolved promise) once there is nothing to check.
+
+The two failure modes are deliberately different: a `401`/`403` means the token is dead, so
+the session and its cookie are cleared and the `/_app` guard redirects to `/login`. Anything
+else — network down, 500 — says nothing about the token, so the session survives and the
+next navigation retries. Do not collapse these into one `catch`; signing a user out because
+their wifi blipped is the worse bug.
+
 **This cookie is JS-readable, not httpOnly**, so it is exposed to XSS the same way the
 in-memory token already is. The safe shape is an httpOnly cookie plus a refresh-token
 exchange, which the backend does not offer; when it does, `hydrate` and `save` in that one
@@ -198,7 +212,8 @@ src/
 │   │   ├── api.ts          axios calls, responses parsed with zod
 │   │   ├── queries.ts      TanStack Query mutations
 │   │   ├── schemas.ts      zod schemas + inferred types
-│   │   └── session.ts      token + user store, cookie-backed when "remember me"
+│   │   ├── session.ts      token + user store, cookie-backed when "remember me"
+│   │   └── verify-session.ts  boot-time check of a restored token
 │   └── tasks/
 │       ├── components/     task-item, dialogs, filter bar, summary, empty states
 │       ├── api.ts
@@ -264,6 +279,7 @@ Notes that shape the client:
 | `POST` | `/auth/login`           | `{ email, password }`       | `200 { user, accessToken }`                                |
 | `POST` | `/auth/forgot-password` | `{ email }`                 | not implemented yet                                        |
 | `POST` | `/auth/reset-password`  | `{ token, password }`       | not implemented yet                                        |
+| `GET`  | `/user/me`              | —                           | `200 user` — the authenticated principal                   |
 
 Notes that shape the client:
 
@@ -274,8 +290,11 @@ Notes that shape the client:
   `app.jwt.secret` and valid for `app.jwt.expiration-ms` (1h by default).
 - **There is no `/auth/logout`.** The JWT is stateless, so `useLogout()` is a plain
   callback that drops the session and clears the query cache — no request, nothing to fail.
-- **There is no `/auth/me`.** The user object comes from the login response and lives in
-  `sessionStore` for the rest of the session; `authApi.me` is kept for the day it exists.
+- **The identity endpoint is `GET /user/me`, not `/auth/me`** — `UserController` reads the
+  UUID off the `@AuthenticationPrincipal`. `authApi.me()` is the client for it, and it is
+  the only way to ask the backend whether a token is still good, which is exactly what the
+  boot-time session check uses it for (section 2). The user object still comes from the
+  login response on a fresh sign-in; `/user/me` refreshes it on a restored one.
 - `UserResponse` also carries `updatedAt`; `userSchema` ignores it.
 
 ### Errors
@@ -285,7 +304,13 @@ surfaces in toasts and inline alerts. Validation failures and unhandled exceptio
 mapped yet, so those still come back in Spring's default shape.
 
 Auth is `Authorization: Bearer <accessToken>`, attached by a request interceptor. A `401`
-on any non-auth endpoint clears the session and redirects to `/login`.
+on any non-auth endpoint clears the session and redirects to `/login` — `SecurityConfig`'s
+entry point answers those with `{ "message": "Unauthorized" }`.
+
+A caller that treats a `401` as a normal answer opts out with
+`api.get(url, { skipAuthRedirect: true })` and handles it itself. The session check is the
+only user today: the interceptor's redirect is a `window.location` assignment, which during
+boot would cost a second full page load on top of the one already in flight.
 
 ---
 
@@ -412,10 +437,6 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
 
 ## 12. Known gaps (intentional)
 
-- **Login issues a token, but no endpoint accepts it yet.** `SecurityConfig` has no filter
-  that reads `Authorization: Bearer …`, so every `/task/**` call is still rejected with
-  `401` — which the response interceptor treats as an expired session and bounces the user
-  back to `/login`. Signing in works; staying signed in needs the backend filter.
 - **Forgot / reset password have no backend.** Both screens call routes that do not exist.
 - **Overdue tasks cannot be edited or toggled.** The backend validates `dueDate` with
   `@Future` on update as well as create, so any `PUT` carrying a past deadline is

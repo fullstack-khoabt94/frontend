@@ -20,6 +20,14 @@ const COOKIE_NAME = 'taskflow_session'
 const MAX_REMEMBER_SECONDS = 30 * 24 * 60 * 60
 
 let state: Session = EMPTY
+
+/**
+ * A token restored from the cookie is only a claim: it was valid when it was
+ * written, and the backend may have rotated its signing secret or deleted the
+ * account since. `verify-session.ts` clears this by asking the API.
+ */
+let tokenIsUnverified = false
+
 const listeners = new Set<() => void>()
 
 function emit() {
@@ -90,6 +98,8 @@ export const sessionStore = {
    */
   set(next: Session, remember = false) {
     state = next
+    // This token came straight from the API, so there is nothing to prove.
+    tokenIsUnverified = false
     if (remember) save(next)
     else deleteCookie(COOKIE_NAME)
     emit()
@@ -104,14 +114,26 @@ export const sessionStore = {
 
   clear() {
     state = EMPTY
+    tokenIsUnverified = false
     deleteCookie(COOKIE_NAME)
     emit()
+  },
+
+  /** True while a cookie-restored token has not been proven against the API. */
+  isUnverified: () => tokenIsUnverified,
+
+  markVerified() {
+    tokenIsUnverified = false
   },
 
   /**
    * Restores a remembered session. Called once before the router mounts, so the
    * `beforeLoad` guards see the token on the very first navigation instead of
    * bouncing the visitor to /login and back.
+   *
+   * What it restores is provisional — the expiry check here is local, so the
+   * session is flagged unverified until `ensureSessionVerified()` has had the
+   * backend confirm the token.
    */
   hydrate() {
     const raw = readCookie(COOKIE_NAME)
@@ -124,6 +146,7 @@ export const sessionStore = {
         return
       }
       state = { accessToken, user }
+      tokenIsUnverified = true
       emit()
     } catch {
       // Tampered with, truncated, or written by an older schema.

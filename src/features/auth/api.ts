@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { type AxiosRequestConfig } from 'axios'
 import { api, getApiErrorMessage } from '@/lib/api/client'
 import {
   authResponseSchema,
@@ -37,8 +37,13 @@ export const authApi = {
     return userSchema.parse(data)
   },
 
-  async me(): Promise<User> {
-    const { data } = await api.get('/auth/me')
+  /**
+   * The identity endpoint lives under `/user`, not `/auth` — it reads the UUID
+   * straight off the authenticated principal, so it doubles as the only way to
+   * ask the backend whether an access token is still good.
+   */
+  async me(config?: AxiosRequestConfig): Promise<User> {
+    const { data } = await api.get('/user/me', config)
     return userSchema.parse(data)
   },
 

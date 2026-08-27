@@ -4,6 +4,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/theme-provider'
+import { ensureSessionVerified } from '@/features/auth/verify-session'
 import type { sessionStore } from '@/features/auth/session'
 
 /** Devtools are dev-only and code-split so they never reach the prod bundle. */
@@ -30,6 +31,13 @@ export type RouterContext = {
 }
 
 export const Route = createRootRouteWithContext<RouterContext>()({
+  /**
+   * The root guard runs ahead of every other `beforeLoad`, which is the only
+   * place a restored token can be checked before `/`, `/_auth` and `/_app` each
+   * branch on `isAuthenticated()`. It is a no-op on every navigation after the
+   * first, and on any load that did not restore a session.
+   */
+  beforeLoad: () => ensureSessionVerified(),
   component: RootLayout,
   notFoundComponent: NotFound,
   errorComponent: RouteError,

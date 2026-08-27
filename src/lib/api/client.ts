@@ -2,6 +2,18 @@ import axios, { type AxiosError } from 'axios'
 import { env } from '@/lib/env'
 import { sessionStore } from '@/features/auth/session'
 
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    /**
+     * Opt a request out of the 401 handler below. For callers that treat a
+     * rejected token as a normal outcome and clear the session themselves — a
+     * hard `window.location` redirect underneath them would only cost a second
+     * full page load.
+     */
+    skipAuthRedirect?: boolean
+  }
+}
+
 export const api = axios.create({
   baseURL: env.apiBaseUrl,
   headers: { 'Content-Type': 'application/json' },
@@ -29,7 +41,7 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     const url = error.config?.url ?? ''
     const isPublic = PUBLIC_PATHS.some((path) => url.startsWith(path))
-    if (error.response?.status === 401 && !isPublic) {
+    if (error.response?.status === 401 && !isPublic && !error.config?.skipAuthRedirect) {
       sessionStore.clear()
       if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
         window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`
