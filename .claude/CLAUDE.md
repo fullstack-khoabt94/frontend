@@ -93,8 +93,8 @@ and forward the search params from `tasksApi.list` instead.
 
 ### Session
 
-`sessionStore` (`features/auth/session.ts`) holds `{ accessToken, refreshToken, user }` in
-memory and is the only module that touches browser storage.
+`sessionStore` (`features/auth/session.ts`) holds `{ accessToken, refreshToken, expiresAt,
+user }` in memory and is the only module that touches browser storage.
 
 **"Keep me signed in" is what decides persistence.** `sessionStore.set(session, remember)`
 mirrors the session into a `taskflow_session` cookie when the login form's `rememberMe` is
@@ -103,16 +103,43 @@ inherit a cookie an earlier session left behind. `sessionStore.hydrate()` runs i
 `main.tsx` **before the router mounts**, because the `beforeLoad` guards read the session
 synchronously; hydrating later would bounce a remembered visitor to `/login` and back.
 
-**Both tokens are JWTs, so the client reads `exp` itself** — `RefreshTokenServicesImpl`
-signs the refresh token with `Jwts.builder().expiration(...)` just as `JwtUtils` does the
-access token. The backend does not need to send expiry times alongside them, and it should
-not: a second copy of the same fact can drift from the token it describes.
+**Expiry is measured on one clock — the browser's — and is never read off the JWTs.** Both
+tokens carry an `exp` claim, and decoding it here would need no backend field at all, but
+`exp` is on the **server's** clock: comparing it against `Date.now()` mixes two clocks, so a
+device set an hour fast reads a live session as expired and signs its owner out, invisibly
+to everyone whose clock is right.
 
-The cookie's `Max-Age` therefore comes from the **refresh** token's `exp` (24h by default),
-not the access token's (1h) — the refresh token is what decides how long a session can be
-revived. The 30-day constant is only the fallback for a token whose `exp` cannot be read.
-For the same reason `hydrate()` does **not** discard a session whose access token has
-expired: that is exactly the case the refresh token exists for.
+The two tokens are described differently because the backend stores them differently. The
+access token's life comes as `accessTokenExpiresIn`, a duration in seconds. The refresh
+token's comes as `refreshTokenExpiresIn` — which, despite the name, is a **timestamp**, and
+a zone-less one: it is a Java `LocalDateTime`, serialised as `"2026-08-29T03:15:30"` with no
+`Z` and no offset. `sessionFromAuthResponse()` reconciles the two into a single `expiresAt`
+in local epoch milliseconds, and everything downstream compares against that one clock.
+
+**The refresh deadline's true instant is unknowable on the client, and that is accepted
+rather than worked around.** `Date.parse` reads a zone-less string as browser-local time:
+exact when the server shares the visitor's timezone, off by the difference otherwise (a UTC
+server and a UTC+7 browser land 7 hours apart even with perfect clocks). The reason this is
+tolerable is that **the deadline is only ever an optimisation** — the server is the authority
+on whether a token still works, and a stale one produces a 401, a refresh attempt and a clean
+sign-out. So the two failure modes are bounded and asymmetric by design:
+
+- Read too generously → the cookie outlives the tokens → one wasted round trip at boot before
+  landing on `/login`. Harmless.
+- Read too strictly → a shorter remembered session, but never shorter than the access token's
+  own lifetime, because `sessionFromAuthResponse` takes `Math.max` of the two. With a UTC
+  server and a UTC+7 browser, "24h" becomes 17h; nobody is signed out while their tokens are
+  live.
+
+That `Math.max` is load-bearing, and not only as a guard: the longer-lived token genuinely
+decides how long the session lasts, and that is usually the refresh token (24h vs 1h) but not
+always — a refresh mints a new access token **without** extending the refresh token, so late
+in a long session the access token is the one still standing.
+
+Two more consequences worth stating outright: `hydrate()` does **not** discard a session whose
+access token has expired (that is precisely what the refresh token is for), and the cookie's
+`Max-Age` is a duration the browser counts down itself, so it expires correctly even on a
+machine whose clock is wrong.
 
 ### Refreshing
 
@@ -144,13 +171,21 @@ the **root** route's `beforeLoad` — ahead of the guards on `/`, `/_auth` and `
 protected page renders on a token the API would reject. It runs at most once per page load
 and returns `undefined` (not a resolved promise) once there is nothing to check.
 
-**"Server answered" and "server unreachable" are handled differently everywhere**, and the
-distinction must not be collapsed into one `catch`. A response that is not a usable token
+**The response interceptor is the single place that decides what a `401` means.** Nothing
+else may re-derive that verdict from a status code — `verify-session.ts` in particular
+catches its failure and draws no conclusion at all. The reason is a real case that reading
+the status gets wrong: when a request 401s and the _refresh_ then fails on the network, the
+error that surfaces to the caller is still that original `401`, even though the interceptor
+deliberately kept the session alive. A second opinion at that layer would sign the visitor
+out for a wifi blip.
+
+That is the general rule too — **"server answered" and "server unreachable" are not the same
+outcome**, and must not collapse into one `catch`. A response that is not a usable token
 ends the session; no response at all says nothing about the token, so the session survives
-and the next attempt retries. Signing a user out because their wifi blipped is the worse
-bug. Note the asymmetry this forces on `refresh.ts`: it cannot key off the status code,
-because the backend reports a _spent_ refresh token as `401` but an _unknown_ one as `500`
-(the `.orElseThrow()` in `RefreshTokenServicesImpl#checkValidRefreshToken`).
+and the next attempt retries. `refresh.ts` draws the line at "did a response arrive at all"
+rather than at a status code: the backend answers every bad refresh token with `401` —
+unknown, revoked and expired alike — so there is no status worth branching on, and any reply
+that is not a new token leaves no path back to a usable access token.
 
 **This cookie is JS-readable, not httpOnly**, so it is exposed to XSS the same way the
 in-memory token already is — and it now carries the 24h refresh token as well as the 1h
@@ -313,8 +348,21 @@ Notes that shape the client:
 | `POST` | `/auth/reset-password`  | `{ token, password }`       | not implemented yet                                        |
 | `GET`  | `/user/me`              | —                           | `200 user` — the authenticated principal                   |
 
-`LoginResponse` is `{ user, accessToken, refreshToken }` — the same envelope from login and
-from refresh, which is why `authResponseSchema` parses both.
+`LoginResponse` is the same envelope from login and from refresh, which is why
+`authResponseSchema` parses both:
+
+```
+{ user, accessToken, refreshToken, accessTokenExpiresIn, refreshTokenExpiresIn }
+```
+
+`accessTokenExpiresIn` is a duration in seconds. **`refreshTokenExpiresIn` is not** — despite
+the name it is a `LocalDateTime` timestamp, zone-less (`"2026-08-29T03:15:30"`), which is why
+the schema needs `z.iso.datetime({ local: true })` rather than the default. Section 2 covers
+what the client does about the missing zone and why it is safe to live with.
+
+**Refreshing returns the same refresh token, unchanged and un-extended** — there is no
+rotation, so its deadline keeps counting down across refreshes and eventually ends the
+session no matter how often the access token is renewed.
 
 Notes that shape the client:
 
@@ -489,6 +537,13 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
   Fine for small lists; revisit when the backend paginates.
 - **Tasks are not scoped to a user.** `getTasks()` has no `WHERE user_id = ?`, so once
   real accounts exist everyone will see everyone's tasks.
+- **The refresh deadline crosses the wire without a timezone.** `LoginResponse` types it as
+  `LocalDateTime`, so a browser in a different zone from the server reads it hours off. This
+  is a **deliberate call, not an oversight**: the client absorbs it (section 2), the effect is
+  a shorter remembered session rather than a wrong sign-out, and nothing is broken by it. If
+  the app is ever deployed with a UTC server and users elsewhere, switching the field to
+  `Instant` (`expiredAt.atZone(ZoneId.systemDefault()).toInstant()`) makes the deadline exact;
+  the client needs only its zod schema relaxed back to a plain `z.iso.datetime()`.
 - **Session persistence is client-side only.** "Keep me signed in" survives a reload via a
   JS-readable cookie, not an httpOnly one, because the backend does not set a cookie of its
   own. Without the tick, a reload still returns the user to `/login`. See section 2.

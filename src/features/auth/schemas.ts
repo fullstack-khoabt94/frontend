@@ -9,10 +9,25 @@ export const userSchema = z.object({
 })
 export type User = z.infer<typeof userSchema>
 
-/** `LoginResponse` on the backend — returned by both /auth/login and /auth/refresh-token. */
+/**
+ * `LoginResponse` on the backend — returned by both /auth/login and
+ * /auth/refresh-token.
+ *
+ * The access token's life arrives as a duration in seconds; the refresh token's
+ * as an absolute deadline, because the backend stores it that way and refreshing
+ * never extends it.
+ *
+ * Despite its name, `refreshTokenExpiresIn` is a **timestamp**, and a zone-less
+ * one — it is a Java `LocalDateTime`, so it reads `"2026-08-29T03:15:30"` with no
+ * `Z` and no offset. `{ local: true }` is what lets that through; the default
+ * `z.iso.datetime()` rejects it. `sessionFromAuthResponse()` documents what the
+ * client does about the missing zone.
+ */
 export const authResponseSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
+  accessTokenExpiresIn: z.number(),
+  refreshTokenExpiresIn: z.iso.datetime({ local: true }),
   user: userSchema,
 })
 export type AuthResponse = z.infer<typeof authResponseSchema>
@@ -21,11 +36,16 @@ export type AuthResponse = z.infer<typeof authResponseSchema>
  * What the session cookie holds. Deliberately its own schema rather than a reuse
  * of `authResponseSchema`: a new required field on the login response would
  * otherwise invalidate every cookie already in a browser, signing everyone out.
- * `refreshToken` is nullable for cookies written before it existed.
+ *
+ * `expiresAt` is epoch milliseconds **on the browser's own clock**, computed when
+ * the tokens arrived. Storing the deadline rather than the duration is what makes
+ * it comparable after a reload, and keeping it in client time is what keeps a
+ * skewed clock from mattering.
  */
 export const storedSessionSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string().nullable().default(null),
+  expiresAt: z.number(),
   user: userSchema,
 })
 

@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { authApi } from './api'
-import { sessionStore } from './session'
+import { sessionFromAuthResponse, sessionStore } from './session'
 import type {
   AuthResponse,
   ForgotPasswordPayload,
@@ -11,14 +11,7 @@ import type {
 } from './schemas'
 
 function persist(result: AuthResponse, remember: boolean) {
-  sessionStore.set(
-    {
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      user: result.user,
-    },
-    remember,
-  )
+  sessionStore.set(sessionFromAuthResponse(result), remember)
 }
 
 export function useLogin() {

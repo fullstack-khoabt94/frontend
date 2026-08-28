@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { env } from '@/lib/env'
 import { authResponseSchema } from './schemas'
-import { sessionStore } from './session'
+import { sessionFromAuthResponse, sessionStore } from './session'
 
 export type RefreshOutcome =
   /** A new access token is in the store; the caller may retry. */
@@ -45,21 +45,16 @@ async function exchange(): Promise<RefreshOutcome> {
       { headers: { 'Content-Type': 'application/json' }, timeout: 20_000 },
     )
     const next = authResponseSchema.parse(data)
-    sessionStore.applyRefresh({
-      accessToken: next.accessToken,
-      refreshToken: next.refreshToken,
-      user: next.user,
-    })
+    sessionStore.applyRefresh(sessionFromAuthResponse(next))
     return { status: 'refreshed', accessToken: next.accessToken }
   } catch (error) {
     // No response at all means the network or the server is down, which says
     // nothing about the token — keep the session so a retry can still succeed.
     if (axios.isAxiosError(error) && !error.response) return { status: 'unavailable' }
-    // Any answer that is not a new token ends the session. The backend reports a
-    // spent token as 401, but an unknown one surfaces as a 500 (see the
-    // `.orElseThrow()` in `RefreshTokenServicesImpl#checkValidRefreshToken`), so
-    // status is not a reliable way to tell the two apart — and either way there
-    // is no path back to a usable access token.
+    // Any other answer ends the session, whatever its status. The backend
+    // reports every bad refresh token as 401 — unknown, revoked and expired
+    // alike — but there is no reading of "the server replied and did not give us
+    // a token" that leaves a path back to a usable access token.
     sessionStore.clear()
     return { status: 'rejected' }
   }
