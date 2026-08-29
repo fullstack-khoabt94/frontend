@@ -31,12 +31,19 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-/** Endpoints where a 401 is a normal answer, not an expired session. */
+/**
+ * Endpoints where a 401 is a normal answer, not an expired session.
+ *
+ * The two password-reset paths matter as much as login does: the backend raises
+ * `BadCredentialsException` — a 401 — for an unrecognised email and for a spent
+ * reset token alike. Off this list, either would clear the session and hard-
+ * redirect a signed-out visitor to /login mid-form.
+ */
 const PUBLIC_PATHS = [
   '/auth/login',
   '/auth/signup',
   '/auth/refresh-token',
-  '/auth/forgot-password',
+  '/auth/request-reset-password-token',
   '/auth/reset-password',
 ]
 

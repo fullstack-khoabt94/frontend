@@ -339,14 +339,31 @@ Notes that shape the client:
 
 ### Auth — signup and login are live
 
-| Method | Path                    | Request                     | Response                                                   |
-| ------ | ----------------------- | --------------------------- | ---------------------------------------------------------- |
-| `POST` | `/auth/signup`          | `{ name, email, password }` | `201 user` — **no token**, the visitor still has to log in |
-| `POST` | `/auth/login`           | `{ email, password }`       | `200 LoginResponse`                                        |
-| `POST` | `/auth/refresh-token`   | `{ refreshToken }`          | `200 LoginResponse`                                        |
-| `POST` | `/auth/forgot-password` | `{ email }`                 | not implemented yet                                        |
-| `POST` | `/auth/reset-password`  | `{ token, password }`       | not implemented yet                                        |
-| `GET`  | `/user/me`              | —                           | `200 user` — the authenticated principal                   |
+| Method | Path                                 | Request                         | Response                                                   |
+| ------ | ------------------------------------ | ------------------------------- | ---------------------------------------------------------- |
+| `POST` | `/auth/signup`                       | `{ name, email, password }`     | `201 user` — **no token**, the visitor still has to log in |
+| `POST` | `/auth/login`                        | `{ email, password }`           | `200 LoginResponse`                                        |
+| `POST` | `/auth/refresh-token`                | `{ refreshToken }`              | `200 LoginResponse`                                        |
+| `POST` | `/auth/request-reset-password-token` | `{ email }`                     | `200` + `"Token issued!"` (`text/plain`)                   |
+| `PUT`  | `/auth/reset-password`               | `{ resetpwToken, newPassword }` | `200` + `"Success!"` (`text/plain`)                        |
+| `GET`  | `/user/me`                           | —                               | `200 user` — the authenticated principal                   |
+
+The two password-reset rows are the ones most likely to trip you up, because none
+of them match the names the screens use:
+
+- **The request endpoint is `/auth/request-reset-password-token`**, not
+  `/auth/forgot-password` — `AuthController` names it after the row it writes.
+  (`SecurityRoutes` still lists a `/api/auth/forgot-password` that no handler
+  serves; it is dead config, not a second endpoint.)
+- **Reset is `PUT`**, not `POST`.
+- **Its fields are `{ resetpwToken, newPassword }`**, not `{ token, password }`.
+  Jackson maps the unknown names to nulls, so the wrong shape fails `@NotBlank`
+  with a `400` that never mentions the real cause. `authApi.resetPassword` does
+  the renaming so the form keeps the names it validates.
+- **Both answer `text/plain`, not JSON.** `authApi` returns `Promise<void>` for
+  the pair — there is no `{ message }` envelope to read.
+- **Both raise `401` on the unhappy path** (unknown email, spent or unknown
+  token), which is why both are on `PUBLIC_PATHS` in `lib/api/client.ts`.
 
 `LoginResponse` is the same envelope from login and from refresh, which is why
 `authResponseSchema` parses both:
@@ -527,7 +544,17 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
 
 ## 12. Known gaps (intentional)
 
-- **Forgot / reset password have no backend.** Both screens call routes that do not exist.
+- **Password reset has no email delivery.** The backend endpoints exist and the screens are
+  wired to them, but `ResetpwTokenServiceImpl` only writes the token to the server log —
+  nothing sends it anywhere. So the "Check your inbox" screen is aspirational: to exercise
+  the flow, read the token out of the Spring Boot console and open
+  `/reset-password?token=…` by hand. Nothing on the client changes when the mail service
+  lands.
+- **Forgot-password leaks whether an email is registered.** The screen's copy is
+  deliberately conditional ("If an account exists for…"), but the backend answers an unknown
+  address with `401 "Invalid email!"` instead of the same `200` it gives a known one — so
+  the form shows a red alert that says the quiet part out loud. The fix is backend-side
+  (return `200` either way); the client is already shaped for it and needs no change.
 - **Overdue tasks cannot be edited or toggled.** The backend validates `dueDate` with
   `@Future` on update as well as create, so any `PUT` carrying a past deadline is
   rejected — including a plain status toggle. Removing `@Future` from `UpdateTaskDto` (or

@@ -47,17 +47,31 @@ export const authApi = {
     return userSchema.parse(data)
   },
 
-  async forgotPassword(payload: ForgotPasswordPayload): Promise<{ message: string }> {
-    const { data } = await api.post('/auth/forgot-password', payload)
-    return data
+  /**
+   * The backend calls this `/auth/request-reset-password-token`, not
+   * `/auth/forgot-password` — `AuthController` names the endpoint after the row
+   * it writes rather than the screen that calls it.
+   *
+   * It answers `200` with a bare `text/plain` body (`"Token issued!"`), so there
+   * is nothing worth parsing: the caller only needs to know it did not throw.
+   */
+  async forgotPassword(payload: ForgotPasswordPayload): Promise<void> {
+    await api.post('/auth/request-reset-password-token', { email: payload.email })
   },
 
-  async resetPassword(payload: ResetPasswordPayload): Promise<{ message: string }> {
-    const { data } = await api.post('/auth/reset-password', {
-      token: payload.token,
-      password: payload.password,
+  /**
+   * `PUT`, not `POST` — and the field names are the backend's:
+   * `ResetPasswordRequestDto` is `{ resetpwToken, newPassword }`. Sending
+   * `{ token, password }` deserialises to two nulls and fails `@NotBlank` with a
+   * `400` that never mentions the real cause.
+   *
+   * Answers `200` with `text/plain` (`"Success!"`), so again nothing to parse.
+   */
+  async resetPassword(payload: ResetPasswordPayload): Promise<void> {
+    await api.put('/auth/reset-password', {
+      resetpwToken: payload.token,
+      newPassword: payload.password,
     })
-    return data
   },
 }
 

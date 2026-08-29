@@ -56,8 +56,9 @@ function ForgotPasswordPage() {
             <span className="grid size-11 place-items-center rounded-xl bg-brand-50 text-brand-900 dark:bg-accent dark:text-brand-200">
               <MailCheck className="size-5" />
             </span>
+            {/* One hour mirrors app.resetpw-token.expiration-ms (3600000). */}
             <p className="text-sm text-muted-foreground">
-              The link expires in 30 minutes. Remember to check your spam folder.
+              The link expires in 1 hour. Remember to check your spam folder.
             </p>
           </div>
 
