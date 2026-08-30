@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { useSession } from '@/features/auth/session'
+import { boardListQuery } from '@/features/boards/queries'
 import { DeleteTaskDialog } from '@/features/tasks/components/delete-task-dialog'
 import { TaskEmptyState } from '@/features/tasks/components/task-empty-state'
 import { TaskFilterBar } from '@/features/tasks/components/task-filter-bar'
@@ -49,14 +51,23 @@ function TasksPage() {
     void navigate({ search: (previous) => ({ ...previous, q: debouncedSearch }), replace: true })
   }, [debouncedSearch, search.q, navigate])
 
-  const list = useTaskList(search)
+  // `null` is the cross-board list: every task the user owns, whatever its board.
+  const list = useTaskList(search, null)
+  // Boards are needed only for the dialog's picker, which is also how a task
+  // gets moved from one board to another.
+  const boards = useQuery(boardListQuery())
   const createTask = useCreateTask()
   const updateTask = useUpdateTask()
-  const updateStatus = useUpdateTaskStatus()
+  const updateStatus = useUpdateTaskStatus(null)
   const deleteTask = useDeleteTask()
 
   const { tasks, stats } = list
   const isInitialLoading = list.isPending
+
+  const boardsById = useMemo(
+    () => new Map((boards.data ?? []).map((board) => [board.id, board])),
+    [boards.data],
+  )
 
   const openCreate = () => {
     setEditingTask(undefined)
@@ -160,6 +171,7 @@ function TasksPage() {
                   onDelete={setDeletingTask}
                   onStatusChange={handleStatusChange}
                   isMutating={deleteTask.isPending && deleteTask.variables?.id === task.id}
+                  board={boardsById.get(task.boardId ?? '')}
                 />
               ))}
             </ul>
@@ -173,6 +185,7 @@ function TasksPage() {
         task={editingTask}
         onSubmit={handleSubmit}
         isPending={createTask.isPending || updateTask.isPending}
+        boards={boards.data}
       />
 
       <DeleteTaskDialog

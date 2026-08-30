@@ -20,23 +20,34 @@ import {
 
 export const taskKeys = {
   all: ['tasks'] as const,
-  list: () => [...taskKeys.all, 'list'] as const,
+  lists: () => [...taskKeys.all, 'list'] as const,
+  /**
+   * One entry per board, plus `null` for the cross-board list behind /tasks.
+   * The board id is part of the key because the two lists come from different
+   * endpoints and must not overwrite each other in the cache.
+   */
+  list: (boardId: string | null) => [...taskKeys.lists(), boardId] as const,
 }
 
-/** One cached fetch of every task; the views are derived from it in the browser. */
-export const taskListQuery = () =>
+/** One cached fetch per board; filter / search / sort are derived in the browser. */
+export const taskListQuery = (boardId: string | null) =>
   queryOptions({
-    queryKey: taskKeys.list(),
-    queryFn: () => tasksApi.list(),
+    queryKey: taskKeys.list(boardId),
+    queryFn: () => tasksApi.list(boardId),
   })
 
-export function useTaskList(search: TaskSearch) {
-  const query = useQuery(taskListQuery())
+export function useTaskList(search: TaskSearch, boardId: string | null) {
+  const query = useQuery(taskListQuery(boardId))
   const view = useMemo(() => buildListView(query.data ?? [], search), [query.data, search])
 
   return { ...query, tasks: view.tasks, stats: query.data ? view.stats : undefined }
 }
 
+/**
+ * Every task list, not just the one on screen. A task can be created into, or
+ * moved between, boards, which leaves two board lists *and* the cross-board one
+ * stale — so the blunt invalidation is the correct one.
+ */
 function invalidateTasks(client: QueryClient) {
   return client.invalidateQueries({ queryKey: taskKeys.all })
 }
@@ -71,21 +82,23 @@ export function useUpdateTask() {
  * task we already hold. The cache is updated optimistically and rolled back on
  * failure, since this is the highest-frequency action in the app.
  */
-export function useUpdateTaskStatus() {
+export function useUpdateTaskStatus(boardId: string | null) {
   const client = useQueryClient()
+  const listKey = taskKeys.list(boardId)
+
   return useMutation({
     mutationFn: ({ task, status }: { task: Task; status: TaskStatus }) =>
       tasksApi.update(task.id, { ...taskToFormValues(task), status }),
     onMutate: async ({ task, status }) => {
-      await client.cancelQueries({ queryKey: taskKeys.list() })
-      const snapshot = client.getQueryData<Task[]>(taskKeys.list())
-      client.setQueryData<Task[]>(taskKeys.list(), (previous) =>
+      await client.cancelQueries({ queryKey: listKey })
+      const snapshot = client.getQueryData<Task[]>(listKey)
+      client.setQueryData<Task[]>(listKey, (previous) =>
         previous?.map((item) => (item.id === task.id ? { ...item, status } : item)),
       )
       return { snapshot }
     },
     onError: (error, _variables, context) => {
-      client.setQueryData(taskKeys.list(), context?.snapshot)
+      client.setQueryData(listKey, context?.snapshot)
       toast.error(getApiErrorMessage(error))
     },
     onSuccess: (task) => {

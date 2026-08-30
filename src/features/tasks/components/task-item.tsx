@@ -19,6 +19,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { BOARD_COLOR_META } from '@/features/boards/constants'
+import { DEFAULT_BOARD_ICON, type Board } from '@/features/boards/schemas'
 import { formatDueDate, isOverdue } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { STATUS_META } from '../constants'
@@ -31,9 +33,15 @@ type Props = {
   onDelete: (task: Task) => void
   onStatusChange: (task: Task, status: TaskStatus) => void
   isMutating?: boolean
+  /**
+   * The task's board, shown as a chip. Only passed on the cross-board /tasks
+   * screen — inside a board every row would carry the same chip, which tells
+   * the reader nothing.
+   */
+  board?: Board
 }
 
-export function TaskItem({ task, onEdit, onDelete, onStatusChange, isMutating }: Props) {
+export function TaskItem({ task, onEdit, onDelete, onStatusChange, isMutating, board }: Props) {
   const isDone = task.status === 'DONE'
   const due = formatDueDate(task.dueDate)
   const overdue = !isDone && isOverdue(task.dueDate)
@@ -81,6 +89,23 @@ export function TaskItem({ task, onEdit, onDelete, onStatusChange, isMutating }:
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={task.status} />
           <PriorityBadge priority={task.priority} />
+          {board && (
+            <span
+              className={cn(
+                'inline-flex max-w-40 items-center gap-1 rounded-full px-2 py-0.5 text-xs',
+                BOARD_COLOR_META[board.color].tile,
+              )}
+            >
+              <span aria-hidden>{board.icon ?? DEFAULT_BOARD_ICON}</span>
+              <span className="truncate">{board.name}</span>
+            </span>
+          )}
+          {/* Only reachable for tasks that predate boards; the form requires one. */}
+          {!board && !task.boardId && (
+            <span className="inline-flex items-center rounded-full border border-dashed px-2 py-0.5 text-xs text-muted-foreground">
+              No board
+            </span>
+          )}
           {due && (
             <span
               className={cn(

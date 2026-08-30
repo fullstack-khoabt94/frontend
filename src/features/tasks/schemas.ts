@@ -23,6 +23,15 @@ export const taskSchema = z.object({
   /** Serialised from a Java `LocalDateTime`, e.g. "2026-08-30T00:00:00" — no zone. */
   dueDate: z.string().nullable(),
   userId: z.string(),
+  /**
+   * The board this task belongs to.
+   *
+   * Nullable on the way in even though the form requires it: tasks created
+   * before boards existed have no board, and failing the parse would blank the
+   * whole list rather than showing them. They surface on /tasks as "No board"
+   * and can be assigned one by editing.
+   */
+  boardId: z.string().nullable().catch(null),
 })
 export type Task = z.infer<typeof taskSchema>
 
@@ -49,6 +58,12 @@ export function earliestDueDate() {
 
 /** Shape of the Add / Edit task form — mirrors CreateTaskDto / UpdateTaskDto. */
 export const taskFormSchema = z.object({
+  /**
+   * Required on write, so every new task lands somewhere. Inside a board the
+   * dialog fills it from the route and hides the field; on /tasks it renders a
+   * picker, which doubles as the way to move a task between boards.
+   */
+  boardId: z.string().min(1, 'Pick a board'),
   title: z
     .string()
     .trim()
@@ -73,6 +88,7 @@ export type TaskFormValues = z.output<typeof taskFormSchema>
 /** Turns an existing task back into form values, for editing and status toggles. */
 export function taskToFormValues(task: Task): TaskFormValues {
   return {
+    boardId: task.boardId ?? '',
     title: task.title,
     description: task.description ?? '',
     status: task.status,

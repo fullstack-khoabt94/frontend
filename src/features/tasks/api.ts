@@ -19,12 +19,23 @@ function toPayload(values: TaskFormValues) {
     status: values.status,
     priority: values.priority,
     dueDate: toLocalDateTime(values.dueDate),
+    // A legacy task with no board round-trips as null rather than "", so a
+    // plain status toggle on one does not fail the backend's UUID binding.
+    boardId: values.boardId || null,
   }
 }
 
 export const tasksApi = {
-  async list(): Promise<Task[]> {
-    const { data } = await api.get('/task/all')
+  /**
+   * `boardId` scopes the list to one board; `null` is the cross-board view
+   * behind /tasks.
+   *
+   * The board-scoped path is nested (`/board/{id}/task`) rather than
+   * `/task/all?boardId=`, so ownership of the board can be checked once, on the
+   * path, instead of trusting a query parameter.
+   */
+  async list(boardId: string | null): Promise<Task[]> {
+    const { data } = await api.get(boardId ? `/board/${boardId}/task` : '/task/all')
     return taskListSchema.parse(data)
   },
 

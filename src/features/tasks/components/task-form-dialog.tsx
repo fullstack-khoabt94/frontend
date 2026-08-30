@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import type { Board } from '@/features/boards/schemas'
 import { PRIORITY_META, STATUS_META } from '../constants'
 import {
   earliestDueDate,
@@ -32,16 +33,20 @@ import {
   type TaskFormValues,
 } from '../schemas'
 
-const EMPTY: TaskFormInput = {
-  title: '',
-  description: '',
-  status: 'TODO',
-  priority: 'MEDIUM',
-  dueDate: '',
+function emptyValues(boardId: string): TaskFormInput {
+  return {
+    boardId,
+    title: '',
+    description: '',
+    status: 'TODO',
+    priority: 'MEDIUM',
+    dueDate: '',
+  }
 }
 
-function toFormValues(task: Task): TaskFormInput {
+function toFormValues(task: Task, fallbackBoardId: string): TaskFormInput {
   return {
+    boardId: task.boardId ?? fallbackBoardId,
     title: task.title,
     description: task.description ?? '',
     status: task.status,
@@ -57,24 +62,47 @@ type Props = {
   task?: Task
   onSubmit: (values: TaskFormValues) => Promise<unknown>
   isPending: boolean
+  /**
+   * The board the task belongs to when the dialog is opened from inside one.
+   * Set it and the picker disappears — the board is context, not a choice.
+   */
+  lockedBoardId?: string
+  /**
+   * Boards to choose from when there is no locked board (the /tasks screen).
+   * Selecting a different one on an existing task moves it.
+   */
+  boards?: Board[]
 }
 
 /**
  * One dialog covers both Add and Update — the fields are identical and keeping
  * a single form avoids two validation schemas drifting apart.
  */
-export function TaskFormDialog({ open, onOpenChange, task, onSubmit, isPending }: Props) {
+export function TaskFormDialog({
+  open,
+  onOpenChange,
+  task,
+  onSubmit,
+  isPending,
+  lockedBoardId,
+  boards,
+}: Props) {
   const isEdit = Boolean(task)
+  // Archived boards stay selectable only if the task is already in one, so the
+  // picker never silently drops the value it was given.
+  const options = (boards ?? []).filter((board) => !board.isArchived || board.id === task?.boardId)
 
   const form = useForm<TaskFormInput, unknown, TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
-    defaultValues: EMPTY,
+    defaultValues: emptyValues(lockedBoardId ?? ''),
   })
 
   // Reset on every open so a cancelled edit never leaks into the next one.
   useEffect(() => {
-    if (open) form.reset(task ? toFormValues(task) : EMPTY)
-  }, [open, task, form])
+    if (!open) return
+    const fallback = lockedBoardId ?? ''
+    form.reset(task ? toFormValues(task, fallback) : emptyValues(fallback))
+  }, [open, task, lockedBoardId, form])
 
   const submit = form.handleSubmit(async (values) => {
     await onSubmit(values)
@@ -98,6 +126,39 @@ export function TaskFormDialog({ open, onOpenChange, task, onSubmit, isPending }
           className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-6"
         >
           <FieldGroup className="-mx-1 min-h-0 overflow-y-auto px-1">
+            {!lockedBoardId && (
+              <Field data-invalid={Boolean(form.formState.errors.boardId)}>
+                <FieldLabel htmlFor="task-board">Board</FieldLabel>
+                <Controller
+                  control={form.control}
+                  name="boardId"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger
+                        id="task-board"
+                        className="w-full"
+                        aria-invalid={Boolean(form.formState.errors.boardId)}
+                      >
+                        <SelectValue placeholder="Choose a board" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {options.map((board) => (
+                          <SelectItem key={board.id} value={board.id}>
+                            <span className="mr-1">{board.icon ?? '📋'}</span>
+                            {board.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <FieldDescription>
+                  {isEdit ? 'Move this task to a different board.' : 'Where this task will live.'}
+                </FieldDescription>
+                <FieldError errors={[form.formState.errors.boardId]} />
+              </Field>
+            )}
+
             <Field data-invalid={Boolean(form.formState.errors.title)}>
               <FieldLabel htmlFor="task-title">Title</FieldLabel>
               <Input
