@@ -35,6 +35,19 @@
   --color-status-done: var(--status-done);
   --color-status-done-soft: var(--status-done-soft);
 
+  --color-board-blue: var(--board-blue);
+  --color-board-blue-soft: var(--board-blue-soft);
+  --color-board-emerald: var(--board-emerald);
+  --color-board-emerald-soft: var(--board-emerald-soft);
+  --color-board-amber: var(--board-amber);
+  --color-board-amber-soft: var(--board-amber-soft);
+  --color-board-rose: var(--board-rose);
+  --color-board-rose-soft: var(--board-rose-soft);
+  --color-board-violet: var(--board-violet);
+  --color-board-violet-soft: var(--board-violet-soft);
+  --color-board-slate: var(--board-slate);
+  --color-board-slate-soft: var(--board-slate-soft);
+
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -114,6 +127,25 @@
   --status-done: oklch(0.56 0.12 162);
   --status-done-soft: oklch(0.95 0.04 165);
 
+  /* Board accents. The one place in the app that deliberately leaves the brand
+     ramp: a board's colour is a *label* the user picks to tell their boards
+     apart at a glance, so six of them have to be distinguishable from each
+     other — which one blue ramp cannot do. `blue` is brand-500 so the default
+     board still reads as Taskflow. Every pair is tuned to hold its contrast on
+     both themes; the `-soft` shade is a fill, the solid one is for text/rails. */
+  --board-blue: var(--brand-500);
+  --board-blue-soft: var(--brand-50);
+  --board-emerald: oklch(0.56 0.12 162);
+  --board-emerald-soft: oklch(0.95 0.04 165);
+  --board-amber: oklch(0.62 0.13 68);
+  --board-amber-soft: oklch(0.955 0.038 82);
+  --board-rose: oklch(0.585 0.17 12);
+  --board-rose-soft: oklch(0.95 0.03 12);
+  --board-violet: oklch(0.55 0.17 295);
+  --board-violet-soft: oklch(0.95 0.03 295);
+  --board-slate: oklch(0.51 0.027 254);
+  --board-slate-soft: oklch(0.955 0.008 250);
+
   --chart-1: var(--brand-900);
   --chart-2: var(--brand-500);
   --chart-3: var(--brand-200);
@@ -169,6 +201,23 @@
   --status-progress-soft: oklch(0.305 0.056 256);
   --status-done: oklch(0.74 0.13 162);
   --status-done-soft: oklch(0.3 0.05 165);
+
+  /* Same six hues, re-tuned rather than reused: the solid shade is lightened so
+     it still passes as text on a dark card, and the soft fill is darkened from
+     a near-white tint to a muted one. Reusing the light values here would put
+     dark text on a white tile and blow out every board tile on the grid. */
+  --board-blue: oklch(0.7482 0.1235 244.75);
+  --board-blue-soft: oklch(0.305 0.056 256);
+  --board-emerald: oklch(0.74 0.13 162);
+  --board-emerald-soft: oklch(0.3 0.05 165);
+  --board-amber: oklch(0.79 0.13 74);
+  --board-amber-soft: oklch(0.31 0.048 76);
+  --board-rose: oklch(0.74 0.15 14);
+  --board-rose-soft: oklch(0.31 0.055 12);
+  --board-violet: oklch(0.74 0.14 295);
+  --board-violet-soft: oklch(0.31 0.055 295);
+  --board-slate: oklch(0.715 0.029 252);
+  --board-slate-soft: oklch(0.29 0.025 256);
 
   --chart-1: oklch(0.8163 0.0896 243.62);
   --chart-2: oklch(0.6582 0.169 248.81);

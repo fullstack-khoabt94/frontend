@@ -26,6 +26,14 @@ The UI must support exactly this feature set:
 - List all tasks that are **in progress**
 - List all tasks that are **to do**
 
+**Boards** (tasks are grouped into boards)
+
+- Create a board
+- Update a board
+- **Archive** / restore a board
+- Delete a board
+- Open a board and manage its tasks
+
 **Account**
 
 - Login
@@ -53,6 +61,7 @@ Mirrors the backend `TaskResponse` exactly.
 | `priority`    | `'LOW' \| 'MEDIUM' \| 'HIGH'`       | Defaults to `MEDIUM`                        |
 | `dueDate`     | `string \| null`                    | Local date-time, no zone; must be future    |
 | `userId`      | `string`                            | Owner                                       |
+| `boardId`     | `string \| null`                    | Board it belongs to — see below             |
 
 **Enum casing is SCREAMING_SNAKE_CASE** because Jackson serialises the Java enums by
 `name()`. Do not lowercase them on the wire — deserialisation fails in both directions.
@@ -68,6 +77,67 @@ no `Z`, no offset. Sending an `Instant`-style UTC string fails to parse
 
 The backend validates `dueDate` with `@Future`, and midnight today is already past, so
 only tomorrow onwards is accepted. The form enforces the same rule client-side.
+
+### Board
+
+Mirrors the `BoardResponse` the backend needs to expose.
+
+| Field         | Type             | Notes                                              |
+| ------------- | ---------------- | -------------------------------------------------- |
+| `id`          | `string`         | Server-generated UUID                              |
+| `name`        | `string`         | Required, 1–80 chars                               |
+| `description` | `string \| null` | **Optional on write** — do not mark it `@NotBlank` |
+| `color`       | `string`         | One of six accent names, see below                 |
+| `icon`        | `string \| null` | An emoji                                           |
+| `isArchived`  | `boolean`        | Archived boards are hidden, not deleted            |
+| `userId`      | `string`         | Owner                                              |
+
+**`color` and `icon` are presentation, and the client owns their vocabulary.**
+The backend stores plain strings; `BOARD_COLORS` (`blue`, `emerald`, `amber`, `rose`,
+`violet`, `slate`) and `BOARD_ICONS` live in `features/boards/schemas.ts`. Both parse with
+`.catch()` rather than strictly, so a value this build does not recognise degrades to the
+default instead of failing the whole list parse and blanking the grid.
+
+**`description` is optional here, unlike a task's.** A board is a container; requiring a
+sentence before someone can group two tasks is friction for nothing. `boardsApi` sends
+`null` for an empty box, so the column must be nullable.
+
+**Watch the JSON name of the archived flag.** A Java `private boolean isArchived` with the
+getter `isArchived()` serialises as `"archived"`, **not** `"isArchived"` — the bean
+introspector strips the `is` prefix exactly as it strips `get`. Either annotate the DTO
+with `@JsonProperty("isArchived")` or leave it; `boardSchema` reads _both_ keys and treats
+an absent flag as `false`, so a backend that has not shipped the column yet keeps showing
+every board rather than hiding all of them.
+
+### Archiving is a status, not a second delete
+
+`isArchived` is a reversible "put this away" — the board and every task under it survive.
+Deleting is the destructive one and takes the tasks with it, which is why
+`DeleteBoardDialog` names the task count and offers **Archive instead** inline. Both
+actions are exposed; archive is the one the UI leads with.
+
+Archive and restore are the same call — a **full `PUT`** rebuilt from the board already in
+the cache, exactly the way `useUpdateTaskStatus` toggles a status. That keeps
+`UpdateBoardDto` a plain full replace and needs no second endpoint. It is optimistic,
+because the card has to leave the grid the moment it is archived.
+
+### Tasks belong to boards
+
+`Task.boardId` is **required on write** (`taskFormSchema`) but **nullable on read**. That
+asymmetry is deliberate: tasks created before boards existed have no board, and rejecting
+them at the parse step would blank the whole list rather than showing them. They render on
+`/tasks` with a "No board" chip and get one by being edited.
+
+Where the id comes from depends on the screen, and `TaskFormDialog` takes one prop for each
+case:
+
+- Inside a board, `lockedBoardId` fills it from the route and the picker is not rendered —
+  the board is context, not a choice.
+- On `/tasks`, `boards` renders a `<Select>`. On an existing task that select is also how a
+  task is **moved** between boards.
+
+An archived board stays selectable only if the task is already in it, so the picker can
+never silently drop the value it was handed.
 
 ### Status is a three-state enum, not a boolean
 
@@ -201,13 +271,33 @@ to `light`.
 ## 3. Routes and UX decisions
 
 ```
-/                        → redirect: /tasks if signed in, else /login
-/login                   ┐
-/signup                  │ _auth  (pathless layout)
-/forgot-password         │        signed-in visitors are bounced to /tasks
-/reset-password?token=…  ┘
-/tasks?filter&q&sort       _app   (pathless layout, requires a session)
+/                            → redirect: /boards if signed in, else /login
+/login                       ┐
+/signup                      │ _auth  (pathless layout)
+/forgot-password             │        signed-in visitors are bounced to /boards
+/reset-password?token=…      ┘
+/boards?view&q                 _app   (pathless layout, requires a session)
+/boards/$boardId?filter&q&sort │
+/tasks?filter&q&sort           ┘
 ```
+
+**Boards are the entry point.** `/`, login and the `_auth` guard all land on `/boards`,
+because a task lives inside a board and the grid is where you pick one.
+
+**`/tasks` survives as the cross-board view.** It is the same list component scoped to
+`null` instead of a board id, and it is the only place that shows tasks from every board at
+once — plus the only place a task can be moved between boards. Deleting it would leave
+board-less legacy tasks with nowhere to appear.
+
+**`/boards/$boardId` reuses the entire task toolbar** — `TaskFilterBar`, `TaskSummary`,
+`TaskItem`, both dialogs — under the same `taskSearchSchema`. The five filters, the search
+and the sort work identically inside a board; only the query's scope changes. Nothing about
+the task list was forked to make this work, and nothing should be.
+
+**The board detail page is keyed on `boardId`.** `BoardDetailRoute` renders
+`<BoardDetailPage key={boardId} …>` so moving between boards remounts it and re-seeds the
+search box from that board's URL. Doing that in an effect instead sets state during render
+and cascades an extra pass — `react-hooks/set-state-in-effect` will reject it.
 
 **Why one task page, not one page per filter.** All five views are the same list with a
 different predicate. Splitting them into routes would duplicate the toolbar, the empty
@@ -280,6 +370,14 @@ src/
 │   │   ├── refresh.ts      single-flight access-token exchange
 │   │   ├── session.ts      tokens + user store, cookie-backed when "remember me"
 │   │   └── verify-session.ts  boot-time check of a restored token
+│   ├── boards/
+│   │   ├── components/     board-card, board-form-dialog, delete-board-dialog,
+│   │   │                   board-empty-state
+│   │   ├── api.ts
+│   │   ├── list.ts         client-side search / archive split / per-board counts
+│   │   ├── queries.ts
+│   │   ├── schemas.ts
+│   │   └── constants.ts    colour and view metadata
 │   └── tasks/
 │       ├── components/     task-item, dialogs, filter bar, summary, empty states
 │       ├── api.ts
@@ -315,6 +413,39 @@ it, never resolve merge conflicts in it — regenerate instead.
 The frontend is written against the Spring Boot service in `backend/backend`, reached
 through `VITE_API_BASE_URL` (`/api`, proxied to `localhost:8080` by the Vite dev server —
 see `vite.config.ts`). `WebConfig` prefixes every controller path with `/api`.
+
+### Boards — NOT implemented yet; this is the contract the frontend expects
+
+The board screens are written against endpoints that do not exist. Everything below is what
+`features/boards/api.ts` and `features/tasks/api.ts` already call; build it and the UI works
+with no client change.
+
+| Method   | Path               | Request                                                  | Response      |
+| -------- | ------------------ | -------------------------------------------------------- | ------------- |
+| `GET`    | `/board/all`       | —                                                        | `200 Board[]` |
+| `GET`    | `/board/{id}`      | —                                                        | `200 Board`   |
+| `POST`   | `/board`           | `{ name, description, color, icon, isArchived, userId }` | `201 Board`   |
+| `PUT`    | `/board/{id}`      | same, without `userId`                                   | `200 Board`   |
+| `DELETE` | `/board/{id}`      | —                                                        | `2xx`         |
+| `GET`    | `/board/{id}/task` | —                                                        | `200 Task[]`  |
+
+Notes, chosen to match the conventions `/task` already set:
+
+- **Path is `/board`, singular**, and the collection is `/board/all`.
+- **Update is a full `PUT`** — `UpdateBoardDto` requiring every field is assumed, and
+  `isArchived` rides along in it. There is deliberately **no** archive-only endpoint.
+- **`userId` is sent on create only**, read from `sessionStore` — same temporary arrangement
+  as `tasksApi.create`. Drop it from both when the owner comes off the principal.
+- **`GET /board/{id}/task` is nested, not `/task/all?boardId=`.** Ownership of the board can
+  then be checked once, on the path, rather than trusting a query parameter — which matters
+  more than usual here, since tasks are still not scoped by user at all (see gaps).
+- **`description` must accept `null`.** See section 2.
+- **Mind the `isArchived` / `archived` JSON naming trap.** See section 2.
+- `DELETE` must cascade to the board's tasks — the confirm dialog tells the user it will.
+
+`Task` also gains **`boardId`** on `TaskResponse`, `CreateTaskDto` and `UpdateTaskDto`. The
+client sends it on create and on every update, so moving a task between boards is just a
+normal `PUT`.
 
 ### Tasks — implemented, and the frontend matches it
 
@@ -435,6 +566,28 @@ boot would cost a second full page load on top of the one already in flight.
 `brand-100 / 300 / 600 / 700` are interpolations of the four above, used only for hover and
 active states. Colours are declared in `src/index.css` as OKLCH.
 
+### Board accents — the one deliberate departure from the brand ramp
+
+`--board-blue / emerald / amber / rose / violet / slate`, each with a `-soft` companion, in
+`src/index.css`. A board's colour is a **label the user picks to tell their boards apart at
+a glance**, so six of them have to be distinguishable _from each other_ — which a single
+blue ramp cannot do. `blue` is `brand-500`, so the default board still reads as Taskflow.
+
+The rules that keep this from becoming a free-for-all:
+
+- Components never name a `--board-*` token and never a hex. Everything resolves through
+  `BOARD_COLOR_META` in `features/boards/constants.ts`, exactly as `STATUS_META` works for
+  statuses.
+- Both shades are redefined under `.dark` — the solid lightened so it still passes as text
+  on a dark card, the soft fill darkened from a near-white tint. Reusing the light values
+  would put a white tile on every dark board card.
+- The colour picker marks its selection with a **tick, not colour alone**, and the tick is
+  `text-background` so it inverts with the swatch.
+- Do not add a seventh colour without checking both themes.
+
+The board card's progress bar is hand-rolled rather than the shadcn `<Progress>`: that
+primitive paints its indicator `bg-primary`, and these bars carry the board's own accent.
+
 Semantic status colours live alongside the brand ramp: `--status-todo` (neutral grey),
 `--status-progress` (= `brand-500`), `--status-done` (green — the one intentional non-brand
 hue, because "completed" reading as green is a stronger UX signal than palette purity).
@@ -458,12 +611,12 @@ toggle switches it for the session.
 Tailwind's default breakpoints. The layout is mobile-first and verified from **320px**
 upward; there is no horizontal page scroll at any width.
 
-| Breakpoint    | What changes                                                                                                                                                                                                                                                 |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `< sm` (640)  | Auth pages drop the brand panel and show the small logo. Task rows hide the inline Start / Finish / Reopen buttons — the checkbox and the ⋯ menu carry those actions. Status filters render as a `<Select>`. Header hides the user's name, keeps the avatar. |
-| `≥ sm` (640)  | Inline quick-action buttons on task rows. Status filters become the segmented tab strip (~500px wide, so it fits from 640 without scrolling). Task dialog widens to `max-w-lg`.                                                                              |
-| `≥ md` (768)  | Summary cards go from 2×2 to a single row of 4.                                                                                                                                                                                                              |
-| `≥ lg` (1024) | Auth pages become the two-column split: brand panel left, form right.                                                                                                                                                                                        |
+| Breakpoint    | What changes                                                                                                                                                                                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `< sm` (640)  | Auth pages drop the brand panel and show the small logo. Task rows hide the inline Start / Finish / Reopen buttons — the checkbox and the ⋯ menu carry those actions. Status filters render as a `<Select>`. Header hides the user's name, keeps the avatar.   |
+| `≥ sm` (640)  | Inline quick-action buttons on task rows. Status filters become the segmented tab strip (~500px wide, so it fits from 640 without scrolling). Task dialog widens to `max-w-lg`. Board grid goes 1 → 2 columns, and board detail's Edit button shows its label. |
+| `≥ md` (768)  | Summary cards go from 2×2 to a single row of 4.                                                                                                                                                                                                                |
+| `≥ lg` (1024) | Auth pages become the two-column split: brand panel left, form right. Board grid goes to 3 columns.                                                                                                                                                            |
 
 Rules that keep it working:
 
@@ -472,8 +625,14 @@ Rules that keep it working:
   become unreachable on a short viewport (small phones, any phone in landscape) because the
   dialog is `position: fixed` and the page scroll cannot reach it. Any new dialog with more
   than a few fields needs the same treatment.
-- **User-generated text uses `wrap-anywhere`** on task titles and descriptions, so a long
-  unbroken string cannot widen the row.
+- **User-generated text uses `wrap-anywhere`** on task titles and descriptions, and on board
+  names and descriptions, so a long unbroken string cannot widen the row or the card.
+- **The board card's link is stretched, not wrapping.** The whole tile is clickable via a
+  `before:absolute before:inset-0` pseudo-element on the `<Link>`, and the actions menu opts
+  back out with `relative`. Nesting the menu button inside an `<a>` instead would be invalid
+  markup and would swallow its clicks.
+- **The board view strip needs no `<Select>` fallback** — two tabs fit at 320px, unlike the
+  five task filters.
 - **Content max-width is `max-w-5xl`** on both the header and the page body so they stay
   aligned on wide screens.
 - When adding a filter or a summary card, re-check the tab strip still fits at 640 — it is
@@ -485,7 +644,11 @@ Rules that keep it working:
 
 - **Imports** use the `@/` alias, never `../../..`.
 - **Files** are kebab-case; components are PascalCase; hooks are `use-*`.
-- **Query keys** come from `taskKeys` — never write an inline array key.
+- **Query keys** come from `taskKeys` / `boardKeys` — never write an inline array key.
+  `taskKeys.list(boardId)` is scoped: one entry per board plus `null` for the cross-board
+  list, because the two come from different endpoints and must not overwrite each other.
+  Mutations invalidate `taskKeys.all` on purpose — a task can be created into or moved
+  between boards, which leaves two board lists _and_ the cross-board one stale.
 - **Mutations own their toasts.** Components call `mutate` and stay quiet.
 - **Loading states are skeletons**, not spinners, wherever the shape is known.
 - **Empty states are specific**: no-search-results, no-tasks-at-all and each per-filter
@@ -562,6 +725,24 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
 - **No sort by age.** `TaskResponse` omits `createdAt` / `updatedAt`.
 - **No pagination.** `GET /task/all` returns every task and the browser does the rest.
   Fine for small lists; revisit when the backend paginates.
+- **The whole boards feature is frontend-only.** Every endpoint in the Boards table above is
+  unbuilt, so `/boards` currently renders its error/empty states against a 404. Nothing on
+  the client changes when they land.
+- **Board task counts are derived from `GET /task/all`.** `BoardResponse` carries no counts,
+  so the grid computes "3 of 8 done" per board from the cross-board task list it fetches
+  alongside the boards (`buildProgressByBoard`). It is a separate query, so a slow or failed
+  task fetch degrades the cards to "no counts" rather than blocking the boards. When the
+  backend adds `taskCount` / `doneCount` to `BoardResponse`, delete that function and read
+  the fields — and note the current version inherits the "no pagination" gap twice over.
+- **Boards cannot be reordered, and have no `createdAt`**, so the grid is sorted by name and
+  that is the only order available. Same root cause as "no sort by age" for tasks.
+- **Board search and the active/archived split are client-side**, like the task filters —
+  `GET /board/all` takes no parameters. `features/boards/list.ts` goes away if it grows
+  `?q=` and `?archived=`.
+- **Archiving a board does not archive its tasks.** They stay live, still count toward the
+  board's progress, and still appear on `/tasks`. That is intended — archiving a board is
+  about tidying the grid, not hiding work — but it does mean `/tasks` can show tasks whose
+  board is archived.
 - **Tasks are not scoped to a user.** `getTasks()` has no `WHERE user_id = ?`, so once
   real accounts exist everyone will see everyone's tasks.
 - **The refresh deadline crosses the wire without a timezone.** `LoginResponse` types it as

@@ -29,9 +29,30 @@ export function AppHeader() {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
       <div className="mx-auto flex h-16 w-full max-w-5xl items-center gap-3 px-4 sm:px-6">
-        <Link to="/tasks" aria-label="Taskflow home">
+        <Link to="/boards" search={{ view: 'active', q: '' }} aria-label="Taskflow home">
           <Logo />
         </Link>
+
+        {/* `activeProps` comes from the router, so the highlight follows the URL
+            rather than a duplicated piece of state. */}
+        <nav aria-label="Main" className="flex items-center gap-1">
+          <Link
+            to="/boards"
+            search={{ view: 'active', q: '' }}
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            activeProps={{ className: 'bg-secondary text-secondary-foreground' }}
+          >
+            Boards
+          </Link>
+          <Link
+            to="/tasks"
+            search={{ filter: 'all', q: '', sort: 'priority_desc' }}
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            activeProps={{ className: 'bg-secondary text-secondary-foreground' }}
+          >
+            All tasks
+          </Link>
+        </nav>
 
         <div className="ml-auto flex items-center gap-1">
           <ModeToggle />

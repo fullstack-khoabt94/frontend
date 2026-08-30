@@ -63,7 +63,9 @@ function CenteredMessage({ code, title, body }: { code: string; title: string; b
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         <p className="text-sm text-muted-foreground">{body}</p>
         <Button size="lg" asChild>
-          <Link to="/tasks">Back to my tasks</Link>
+          <Link to="/boards" search={{ view: 'active', q: '' }}>
+            Back to my boards
+          </Link>
         </Button>
       </div>
     </div>

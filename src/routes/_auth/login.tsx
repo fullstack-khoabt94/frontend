@@ -43,7 +43,7 @@ function LoginPage() {
       await navigate({ href: redirect, replace: true })
       return
     }
-    await navigate({ to: '/tasks', replace: true })
+    await navigate({ to: '/boards', search: { view: 'active', q: '' }, replace: true })
   })
 
   return (

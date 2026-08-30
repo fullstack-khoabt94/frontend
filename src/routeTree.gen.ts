@@ -17,6 +17,8 @@ import { Route as AuthForgotPasswordRouteImport } from './routes/_auth/forgot-pa
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AuthResetPasswordRouteImport } from './routes/_auth/reset-password'
 import { Route as AuthSignupRouteImport } from './routes/_auth/signup'
+import { Route as AppBoardsIndexRouteImport } from './routes/_app/boards/index'
+import { Route as AppBoardsBoardIdRouteImport } from './routes/_app/boards/$boardId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -56,6 +58,16 @@ const AuthSignupRoute = AuthSignupRouteImport.update({
   path: '/signup',
   getParentRoute: () => AuthRoute,
 } as any)
+const AppBoardsIndexRoute = AppBoardsIndexRouteImport.update({
+  id: '/boards/',
+  path: '/boards/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBoardsBoardIdRoute = AppBoardsBoardIdRouteImport.update({
+  id: '/boards/$boardId',
+  path: '/boards/$boardId',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -64,6 +76,8 @@ export interface FileRoutesByFullPath {
   '/login': typeof AuthLoginRoute
   '/reset-password': typeof AuthResetPasswordRoute
   '/signup': typeof AuthSignupRoute
+  '/boards/$boardId': typeof AppBoardsBoardIdRoute
+  '/boards/': typeof AppBoardsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -72,6 +86,8 @@ export interface FileRoutesByTo {
   '/login': typeof AuthLoginRoute
   '/reset-password': typeof AuthResetPasswordRoute
   '/signup': typeof AuthSignupRoute
+  '/boards/$boardId': typeof AppBoardsBoardIdRoute
+  '/boards': typeof AppBoardsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -83,6 +99,8 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/reset-password': typeof AuthResetPasswordRoute
   '/_auth/signup': typeof AuthSignupRoute
+  '/_app/boards/$boardId': typeof AppBoardsBoardIdRoute
+  '/_app/boards/': typeof AppBoardsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -93,6 +111,8 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/signup'
+    | '/boards/$boardId'
+    | '/boards/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -101,6 +121,8 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/signup'
+    | '/boards/$boardId'
+    | '/boards'
   id:
     | '__root__'
     | '/'
@@ -111,6 +133,8 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_auth/reset-password'
     | '/_auth/signup'
+    | '/_app/boards/$boardId'
+    | '/_app/boards/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -177,15 +201,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthSignupRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/_app/boards/': {
+      id: '/_app/boards/'
+      path: '/boards'
+      fullPath: '/boards/'
+      preLoaderRoute: typeof AppBoardsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/boards/$boardId': {
+      id: '/_app/boards/$boardId'
+      path: '/boards/$boardId'
+      fullPath: '/boards/$boardId'
+      preLoaderRoute: typeof AppBoardsBoardIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
   AppTasksRoute: typeof AppTasksRoute
+  AppBoardsBoardIdRoute: typeof AppBoardsBoardIdRoute
+  AppBoardsIndexRoute: typeof AppBoardsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppTasksRoute: AppTasksRoute,
+  AppBoardsBoardIdRoute: AppBoardsBoardIdRoute,
+  AppBoardsIndexRoute: AppBoardsIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
