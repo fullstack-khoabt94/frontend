@@ -69,7 +69,7 @@ type Props = {
   lockedBoardId?: string
   /**
    * Boards to choose from when there is no locked board (the /tasks screen).
-   * Selecting a different one on an existing task moves it.
+   * Create-only — see the field below.
    */
   boards?: Board[]
 }
@@ -133,7 +133,10 @@ export function TaskFormDialog({
                   control={form.control}
                   name="boardId"
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
+                    // Disabled when editing: UpdateTaskDto has no boardId, so
+                    // the change could not be saved. Shown rather than hidden
+                    // so the row still says which board the task is in.
+                    <Select value={field.value} onValueChange={field.onChange} disabled={isEdit}>
                       <SelectTrigger
                         id="task-board"
                         className="w-full"
@@ -145,7 +148,7 @@ export function TaskFormDialog({
                         {options.map((board) => (
                           <SelectItem key={board.id} value={board.id}>
                             <span className="mr-1">{board.icon ?? '📋'}</span>
-                            {board.name}
+                            {board.title}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -153,7 +156,7 @@ export function TaskFormDialog({
                   )}
                 />
                 <FieldDescription>
-                  {isEdit ? 'Move this task to a different board.' : 'Where this task will live.'}
+                  {isEdit ? 'A task cannot be moved between boards.' : 'Where this task will live.'}
                 </FieldDescription>
                 <FieldError errors={[form.formState.errors.boardId]} />
               </Field>

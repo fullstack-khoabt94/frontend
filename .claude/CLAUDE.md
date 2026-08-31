@@ -60,8 +60,10 @@ Mirrors the backend `TaskResponse` exactly.
 | `status`      | `'TODO' \| 'IN_PROGRESS' \| 'DONE'` | Defaults to `TODO`                          |
 | `priority`    | `'LOW' \| 'MEDIUM' \| 'HIGH'`       | Defaults to `MEDIUM`                        |
 | `dueDate`     | `string \| null`                    | Local date-time, no zone; must be future    |
-| `userId`      | `string`                            | Owner                                       |
 | `boardId`     | `string \| null`                    | Board it belongs to — see below             |
+
+**There is no `userId`.** `TaskResponse` dropped it when ownership moved to the board; a task
+reaches its owner through `task.board.user`. Nothing on the client needed it.
 
 **Enum casing is SCREAMING_SNAKE_CASE** because Jackson serialises the Java enums by
 `name()`. Do not lowercase them on the wire — deserialisation fails in both directions.
@@ -80,17 +82,17 @@ only tomorrow onwards is accepted. The form enforces the same rule client-side.
 
 ### Board
 
-Mirrors the `BoardResponse` the backend needs to expose.
+Mirrors `BoardResponse` exactly.
 
-| Field         | Type             | Notes                                              |
-| ------------- | ---------------- | -------------------------------------------------- |
-| `id`          | `string`         | Server-generated UUID                              |
-| `name`        | `string`         | Required, 1–80 chars                               |
-| `description` | `string \| null` | **Optional on write** — do not mark it `@NotBlank` |
-| `color`       | `string`         | One of six accent names, see below                 |
-| `icon`        | `string \| null` | An emoji                                           |
-| `isArchived`  | `boolean`        | Archived boards are hidden, not deleted            |
-| `userId`      | `string`         | Owner                                              |
+| Field         | Type             | Notes                                          |
+| ------------- | ---------------- | ---------------------------------------------- |
+| `id`          | `string`         | Server-generated UUID                          |
+| `title`       | `string`         | Required, 1–50 chars (the column, not the DTO) |
+| `description` | `string \| null` | **Required on write** (`@NotBlank`)            |
+| `color`       | `string`         | One of six accent names, see below             |
+| `icon`        | `string \| null` | An emoji                                       |
+| `isArchived`  | `boolean`        | Set by `DELETE`; nothing sets it back          |
+| `userId`      | `string`         | Owner                                          |
 
 **`color` and `icon` are presentation, and the client owns their vocabulary.**
 The backend stores plain strings; `BOARD_COLORS` (`blue`, `emerald`, `amber`, `rose`,
@@ -98,43 +100,53 @@ The backend stores plain strings; `BOARD_COLORS` (`blue`, `emerald`, `amber`, `r
 `.catch()` rather than strictly, so a value this build does not recognise degrades to the
 default instead of failing the whole list parse and blanking the grid.
 
-**`description` is optional here, unlike a task's.** A board is a container; requiring a
-sentence before someone can group two tasks is friction for nothing. `boardsApi` sends
-`null` for an empty box, so the column must be nullable.
+The backend defaults both columns to the literal string `'default'`, which is exactly the
+case that guard absorbs — though `icon` then renders the word rather than an emoji, so the
+default is worth changing server-side.
 
-**Watch the JSON name of the archived flag.** A Java `private boolean isArchived` with the
-getter `isArchived()` serialises as `"archived"`, **not** `"isArchived"` — the bean
-introspector strips the `is` prefix exactly as it strips `get`. Either annotate the DTO
-with `@JsonProperty("isArchived")` or leave it; `boardSchema` reads _both_ keys and treats
-an absent flag as `false`, so a backend that has not shipped the column yet keeps showing
-every board rather than hiding all of them.
+**`description` is required on write**, because both board DTOs mark it `@NotBlank`. The
+form asks for it up front rather than sending `null` into a 400.
 
-### Archiving is a status, not a second delete
+**The archived flag is read from `isArchived` or `archived`.** As built, `BoardResponse` is a
+**record** with a `Boolean` component, so Jackson uses the component name and emits
+`isArchived` — the first key hits and nothing more is needed. The fallback stays because the
+trap it guards is real for any non-record DTO: a `boolean isArchived` field with an
+`isArchived()` getter serialises as `archived`, since the bean introspector strips the `is`
+prefix the way it strips `get`. (A wrapper `Boolean` is never treated as an is-getter either,
+so the combination here is doubly safe.)
 
-`isArchived` is a reversible "put this away" — the board and every task under it survive.
-Deleting is the destructive one and takes the tasks with it, which is why
-`DeleteBoardDialog` names the task count and offers **Archive instead** inline. Both
-actions are exposed; archive is the one the UI leads with.
+### Archiving is the only way to remove a board
 
-Archive and restore are the same call — a **full `PUT`** rebuilt from the board already in
-the cache, exactly the way `useUpdateTaskStatus` toggles a status. That keeps
-`UpdateBoardDto` a plain full replace and needs no second endpoint. It is optimistic,
-because the card has to leave the grid the moment it is archived.
+`DELETE /board/{id}` is a **soft delete**: `BoardServiceImpl.deleteBoard` sets `isArchived`
+and leaves the row and every task under it in place. There is no hard-delete endpoint, and
+nothing sets the flag back — so the UI offers **archive only: no delete, no restore.**
+
+Three consequences, all deliberate rather than omissions:
+
+- `useArchiveBoard` calls `DELETE` and optimistically flips `isArchived` in the cache, so the
+  card leaves the Active grid at once instead of sitting in a view it no longer belongs to.
+- An archived board's action menu keeps **only Edit**, and the detail header drops its
+  archive button rather than offering a toggle with no second state.
+- `ArchiveBoardDialog` says outright that the board keeps its tasks and cannot be restored
+  from the app. Both facts are surprising enough that discovering them later would be worse.
 
 ### Tasks belong to boards
 
-`Task.boardId` is **required on write** (`taskFormSchema`) but **nullable on read**. That
-asymmetry is deliberate: tasks created before boards existed have no board, and rejecting
-them at the parse step would blank the whole list rather than showing them. They render on
-`/tasks` with a "No board" chip and get one by being edited.
+`Task.boardId` is **required on create** (`taskFormSchema`) but **nullable on read**. The
+asymmetry costs nothing and stops a task that predates the column from blanking the whole
+list; such a task renders on `/tasks` with a "No board" chip.
 
 Where the id comes from depends on the screen, and `TaskFormDialog` takes one prop for each
 case:
 
 - Inside a board, `lockedBoardId` fills it from the route and the picker is not rendered —
   the board is context, not a choice.
-- On `/tasks`, `boards` renders a `<Select>`. On an existing task that select is also how a
-  task is **moved** between boards.
+- On `/tasks`, `boards` renders a `<Select>`.
+
+**The picker is create-only.** `UpdateTaskDto` has no `boardId`, so on an existing task the
+select is `disabled` — shown, so the row still says which board the task is in, but not
+editable, and `tasksApi.update` does not send the field at all. Sending it would be dropped
+silently and would read like a working feature.
 
 An archived board stays selectable only if the task is already in it, so the picker can
 never silently drop the value it was handed.
@@ -371,7 +383,7 @@ src/
 │   │   ├── session.ts      tokens + user store, cookie-backed when "remember me"
 │   │   └── verify-session.ts  boot-time check of a restored token
 │   ├── boards/
-│   │   ├── components/     board-card, board-form-dialog, delete-board-dialog,
+│   │   ├── components/     board-card, board-form-dialog, archive-board-dialog,
 │   │   │                   board-empty-state
 │   │   ├── api.ts
 │   │   ├── list.ts         client-side search / archive split / per-board counts
@@ -414,38 +426,57 @@ The frontend is written against the Spring Boot service in `backend/backend`, re
 through `VITE_API_BASE_URL` (`/api`, proxied to `localhost:8080` by the Vite dev server —
 see `vite.config.ts`). `WebConfig` prefixes every controller path with `/api`.
 
-### Boards — NOT implemented yet; this is the contract the frontend expects
+### Boards — implemented; the client matches it as built
 
-The board screens are written against endpoints that do not exist. Everything below is what
-`features/boards/api.ts` and `features/tasks/api.ts` already call; build it and the UI works
-with no client change.
+| Method   | Path          | Request                               | Response      |
+| -------- | ------------- | ------------------------------------- | ------------- |
+| `GET`    | `/board/all`  | —                                     | `200 Board[]` |
+| `GET`    | `/board/{id}` | —                                     | `200 Board`   |
+| `POST`   | `/board`      | `{ title, description, color, icon }` | `201 Board`   |
+| `PUT`    | `/board/{id}` | same                                  | `200 Board`   |
+| `DELETE` | `/board/{id}` | —                                     | `200 "Done"`  |
 
-| Method   | Path               | Request                                                  | Response      |
-| -------- | ------------------ | -------------------------------------------------------- | ------------- |
-| `GET`    | `/board/all`       | —                                                        | `200 Board[]` |
-| `GET`    | `/board/{id}`      | —                                                        | `200 Board`   |
-| `POST`   | `/board`           | `{ name, description, color, icon, isArchived, userId }` | `201 Board`   |
-| `PUT`    | `/board/{id}`      | same, without `userId`                                   | `200 Board`   |
-| `DELETE` | `/board/{id}`      | —                                                        | `2xx`         |
-| `GET`    | `/board/{id}/task` | —                                                        | `200 Task[]`  |
+The four decisions that shaped the client, all of them the backend's:
 
-Notes, chosen to match the conventions `/task` already set:
+- **The label field is `title`, not `name`.** `boardSchema` follows it rather than renaming
+  at the boundary — a hidden translation is invisible the next time the two are compared.
+- **No `userId` in the body.** `BoardController` reads the owner off the
+  `@AuthenticationPrincipal`, so `boardsApi.create` sends nothing and never touches
+  `sessionStore`. `tasksApi.create` does the same; the old "userId on create" note is gone.
+- **`DELETE` is a soft delete.** `BoardServiceImpl.deleteBoard` flips `isArchived` and leaves
+  the row and every task under it alone, so `boardsApi.archive` is the _archive_ action and
+  there is no hard delete anywhere in the UI.
+- **`UpdateBoardDto` has no `isArchived`, and nothing else sets it back to false.** So there
+  is **no restore**. The board card, the detail header and the empty-state copy all had the
+  restore path removed rather than left to fail silently, and `ArchiveBoardDialog` says
+  outright that archiving cannot be undone from the app.
 
-- **Path is `/board`, singular**, and the collection is `/board/all`.
-- **Update is a full `PUT`** — `UpdateBoardDto` requiring every field is assumed, and
-  `isArchived` rides along in it. There is deliberately **no** archive-only endpoint.
-- **`userId` is sent on create only**, read from `sessionStore` — same temporary arrangement
-  as `tasksApi.create`. Drop it from both when the owner comes off the principal.
-- **`GET /board/{id}/task` is nested, not `/task/all?boardId=`.** Ownership of the board can
-  then be checked once, on the path, rather than trusting a query parameter — which matters
-  more than usual here, since tasks are still not scoped by user at all (see gaps).
-- **`description` must accept `null`.** See section 2.
-- **Mind the `isArchived` / `archived` JSON naming trap.** See section 2.
-- `DELETE` must cascade to the board's tasks — the confirm dialog tells the user it will.
+Two limits the form enforces on the backend's behalf:
 
-`Task` also gains **`boardId`** on `TaskResponse`, `CreateTaskDto` and `UpdateTaskDto`. The
-client sends it on create and on every update, so moving a task between boards is just a
-normal `PUT`.
+- **Title caps at 50.** `Board.title` is `varchar(50)` while the DTO validates `@Size(max =
+120)`, so 51–120 characters clear validation and then 500 on the insert. The form holds the
+  tighter of the two.
+- **Description is required.** Both board DTOs mark it `@NotBlank`.
+
+`GET /board/all` returns archived boards too, which is what the client wants — the
+active/archived split is a client-side view, like the task filters.
+
+### There is no board-scoped task endpoint
+
+`/board/{id}/task` does not exist, and `TaskController` exposes only `/task/all`. So the
+client fetches every task once and narrows by `boardId` in the browser, exactly the way the
+five status filters already work — `buildListView(tasks, search, boardId)`.
+
+That collapsed the board-scoped cache key back to a single `taskKeys.list()`: keying by board
+would fragment the cache into copies of one response.
+
+`TaskResponse` also **dropped `userId`** — ownership moved to the board, and a task reaches
+its owner through `task.board.user`. Nothing on the client needed it, so nothing replaced it.
+
+**`UpdateTaskDto` has no `boardId`** and `updateTask` never touches `task.board`, so a task
+cannot change board. `tasksApi.update` deliberately does not send the field, and the picker in
+`TaskFormDialog` is `disabled` when editing — shown, so the row still says which board the
+task is in, but not editable.
 
 ### Tasks — implemented, and the frontend matches it
 
@@ -645,10 +676,9 @@ Rules that keep it working:
 - **Imports** use the `@/` alias, never `../../..`.
 - **Files** are kebab-case; components are PascalCase; hooks are `use-*`.
 - **Query keys** come from `taskKeys` / `boardKeys` — never write an inline array key.
-  `taskKeys.list(boardId)` is scoped: one entry per board plus `null` for the cross-board
-  list, because the two come from different endpoints and must not overwrite each other.
-  Mutations invalidate `taskKeys.all` on purpose — a task can be created into or moved
-  between boards, which leaves two board lists _and_ the cross-board one stale.
+  `taskKeys.list()` takes no argument: `/task/all` is the only list endpoint, so every screen
+  reads the same cached array and narrows it in the browser. Keying by board would fragment
+  the cache into copies of one response.
 - **Mutations own their toasts.** Components call `mutate` and stay quiet.
 - **Loading states are skeletons**, not spinners, wherever the shape is known.
 - **Empty states are specific**: no-search-results, no-tasks-at-all and each per-filter
@@ -725,17 +755,30 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
 - **No sort by age.** `TaskResponse` omits `createdAt` / `updatedAt`.
 - **No pagination.** `GET /task/all` returns every task and the browser does the rest.
   Fine for small lists; revisit when the backend paginates.
-- **The whole boards feature is frontend-only.** Every endpoint in the Boards table above is
-  unbuilt, so `/boards` currently renders its error/empty states against a 404. Nothing on
-  the client changes when they land.
+- **Four backend bugs break the feature today, and no client change routes around them:**
+  `@NotBlank` on `CreateTaskDto.boardId` (a `UUID`) makes every `POST /task` 500;
+  `TaskController.getAllTask` passes the principal's **userId** into `getTasks(boardId)`, so
+  `GET /task/all` 404s for everyone; `BoardServiceImpl.deleteBoard` never calls `save()`, so
+  archiving is a no-op; and `TaskServiceImpl.deleteTask` has its ownership check inverted.
+  The screens are written to work the moment these are fixed.
+- **Boards can be archived but never restored or deleted.** `DELETE` soft-deletes and nothing
+  reverses it, so the UI exposes neither action. Restore needs `isArchived` on
+  `UpdateBoardDto`; a real delete needs a second endpoint plus `ON DELETE CASCADE` on
+  `tasks.board_id`, currently `NO ACTION`.
+- **A task cannot be moved between boards.** `UpdateTaskDto` has no `boardId`. The picker is
+  already built and merely `disabled` when editing.
+- **A board's tasks are filtered in the browser**, because `/board/{id}/task` does not exist
+  and `/task/all` is the only list endpoint — so every screen loads every task the account
+  owns. `buildListView`'s `boardId` parameter is the only thing a scoped endpoint would
+  displace.
 - **Board task counts are derived from `GET /task/all`.** `BoardResponse` carries no counts,
   so the grid computes "3 of 8 done" per board from the cross-board task list it fetches
   alongside the boards (`buildProgressByBoard`). It is a separate query, so a slow or failed
   task fetch degrades the cards to "no counts" rather than blocking the boards. When the
   backend adds `taskCount` / `doneCount` to `BoardResponse`, delete that function and read
   the fields — and note the current version inherits the "no pagination" gap twice over.
-- **Boards cannot be reordered, and have no `createdAt`**, so the grid is sorted by name and
-  that is the only order available. Same root cause as "no sort by age" for tasks.
+- **Boards are sorted by title and cannot be reordered.** `BoardResponse` does carry
+  `createdAt`, so ordering by age is available if wanted — unlike tasks.
 - **Board search and the active/archived split are client-side**, like the task filters —
   `GET /board/all` takes no parameters. `features/boards/list.ts` goes away if it grows
   `?q=` and `?archived=`.
@@ -743,8 +786,10 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
   board's progress, and still appear on `/tasks`. That is intended — archiving a board is
   about tidying the grid, not hiding work — but it does mean `/tasks` can show tasks whose
   board is archived.
-- **Tasks are not scoped to a user.** `getTasks()` has no `WHERE user_id = ?`, so once
-  real accounts exist everyone will see everyone's tasks.
+- **Nothing scopes tasks to the caller.** `POST /task`, `GET /task/{id}` and `PUT /task/{id}`
+  have no `@AuthenticationPrincipal` and no ownership guard, so any signed-in user can read or
+  edit any task by UUID and create one into someone else's board. `BoardController` does check
+  (`getValidBoard`); `TaskController` does not.
 - **The refresh deadline crosses the wire without a timezone.** `LoginResponse` types it as
   `LocalDateTime`, so a browser in a different zone from the server reads it hours off. This
   is a **deliberate call, not an oversight**: the client absorbs it (section 2), the effect is

@@ -22,14 +22,17 @@ export const taskSchema = z.object({
   priority: taskPrioritySchema,
   /** Serialised from a Java `LocalDateTime`, e.g. "2026-08-30T00:00:00" — no zone. */
   dueDate: z.string().nullable(),
-  userId: z.string(),
   /**
    * The board this task belongs to.
    *
-   * Nullable on the way in even though the form requires it: tasks created
-   * before boards existed have no board, and failing the parse would blank the
-   * whole list rather than showing them. They surface on /tasks as "No board"
-   * and can be assigned one by editing.
+   * `TaskResponse` no longer carries `userId` at all — ownership moved to the
+   * board, and a task reaches its owner through `task.board.user`. Nothing on
+   * the client needs the owner directly, so nothing replaced it.
+   *
+   * Nullable on the way in even though the form requires it: `fromTask` calls
+   * `task.getBoard().getId()` unguarded, so a null board is a server-side NPE
+   * rather than a null here — but a task that predates the column would still
+   * blank the whole list if the parse were strict, and showing it costs nothing.
    */
   boardId: z.string().nullable().catch(null),
 })
@@ -59,9 +62,12 @@ export function earliestDueDate() {
 /** Shape of the Add / Edit task form — mirrors CreateTaskDto / UpdateTaskDto. */
 export const taskFormSchema = z.object({
   /**
-   * Required on write, so every new task lands somewhere. Inside a board the
+   * Required on create, so every new task lands somewhere. Inside a board the
    * dialog fills it from the route and hides the field; on /tasks it renders a
-   * picker, which doubles as the way to move a task between boards.
+   * picker.
+   *
+   * **It is create-only.** `UpdateTaskDto` has no `boardId`, so the picker is
+   * disabled when editing — a task cannot change board.
    */
   boardId: z.string().min(1, 'Pick a board'),
   title: z

@@ -97,7 +97,7 @@ export function TaskItem({ task, onEdit, onDelete, onStatusChange, isMutating, b
               )}
             >
               <span aria-hidden>{board.icon ?? DEFAULT_BOARD_ICON}</span>
-              <span className="truncate">{board.name}</span>
+              <span className="truncate">{board.title}</span>
             </span>
           )}
           {/* Only reachable for tasks that predate boards; the form requires one. */}

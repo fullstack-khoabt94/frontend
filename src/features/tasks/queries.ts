@@ -20,34 +20,36 @@ import {
 
 export const taskKeys = {
   all: ['tasks'] as const,
-  lists: () => [...taskKeys.all, 'list'] as const,
   /**
-   * One entry per board, plus `null` for the cross-board list behind /tasks.
-   * The board id is part of the key because the two lists come from different
-   * endpoints and must not overwrite each other in the cache.
+   * A single entry. There is only one list endpoint — `/task/all` — so every
+   * screen reads the same cached array and narrows it in the browser. Keying by
+   * board would fragment the cache into copies of one response.
    */
-  list: (boardId: string | null) => [...taskKeys.lists(), boardId] as const,
+  list: () => [...taskKeys.all, 'list'] as const,
 }
 
-/** One cached fetch per board; filter / search / sort are derived in the browser. */
-export const taskListQuery = (boardId: string | null) =>
+/** One cached fetch of every task; board, filter, search and sort are derived from it. */
+export const taskListQuery = () =>
   queryOptions({
-    queryKey: taskKeys.list(boardId),
-    queryFn: () => tasksApi.list(boardId),
+    queryKey: taskKeys.list(),
+    queryFn: () => tasksApi.list(),
   })
 
+/**
+ * @param boardId narrows the list to one board, or `null` for the cross-board
+ * view behind /tasks. The narrowing happens here rather than in the request
+ * because no board-scoped endpoint exists.
+ */
 export function useTaskList(search: TaskSearch, boardId: string | null) {
-  const query = useQuery(taskListQuery(boardId))
-  const view = useMemo(() => buildListView(query.data ?? [], search), [query.data, search])
+  const query = useQuery(taskListQuery())
+  const view = useMemo(
+    () => buildListView(query.data ?? [], search, boardId),
+    [query.data, search, boardId],
+  )
 
   return { ...query, tasks: view.tasks, stats: query.data ? view.stats : undefined }
 }
 
-/**
- * Every task list, not just the one on screen. A task can be created into, or
- * moved between, boards, which leaves two board lists *and* the cross-board one
- * stale — so the blunt invalidation is the correct one.
- */
 function invalidateTasks(client: QueryClient) {
   return client.invalidateQueries({ queryKey: taskKeys.all })
 }
@@ -82,9 +84,9 @@ export function useUpdateTask() {
  * task we already hold. The cache is updated optimistically and rolled back on
  * failure, since this is the highest-frequency action in the app.
  */
-export function useUpdateTaskStatus(boardId: string | null) {
+export function useUpdateTaskStatus() {
   const client = useQueryClient()
-  const listKey = taskKeys.list(boardId)
+  const listKey = taskKeys.list()
 
   return useMutation({
     mutationFn: ({ task, status }: { task: Task; status: TaskStatus }) =>

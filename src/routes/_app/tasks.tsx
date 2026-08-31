@@ -58,7 +58,7 @@ function TasksPage() {
   const boards = useQuery(boardListQuery())
   const createTask = useCreateTask()
   const updateTask = useUpdateTask()
-  const updateStatus = useUpdateTaskStatus(null)
+  const updateStatus = useUpdateTaskStatus()
   const deleteTask = useDeleteTask()
 
   const { tasks, stats } = list

@@ -69,8 +69,19 @@ function buildStats(searched: Task[]): TaskStats {
   }
 }
 
-export function buildListView(tasks: Task[], search: TaskSearch) {
-  const searched = tasks.filter((task) => matchesSearch(task, search.q))
+/**
+ * @param boardId narrows to one board before anything else, so the tab counts
+ * describe that board rather than the whole account. `null` keeps every task,
+ * which is the /tasks view.
+ *
+ * The board narrowing is here, alongside the status filter, because the API has
+ * no board-scoped list endpoint — `/task/all` is the only one, and
+ * `/board/{id}/task` does not exist. If one is added, drop this parameter and
+ * let the request do the scoping.
+ */
+export function buildListView(tasks: Task[], search: TaskSearch, boardId: string | null) {
+  const scoped = boardId ? tasks.filter((task) => task.boardId === boardId) : tasks
+  const searched = scoped.filter((task) => matchesSearch(task, search.q))
   return {
     tasks: sortTasks(
       searched.filter((task) => matchesFilter(task, search.filter)),
