@@ -1,12 +1,22 @@
-import type { Task, TaskFilter, TaskSearch, TaskSort, TaskStats } from './schemas'
+import type { Task, TaskFilter, TaskSearch, TaskStats } from './schemas'
 
 /**
- * Filtering, searching, sorting and counting all happen in the browser.
+ * What is left of the client-side list pipeline after the backend took over
+ * paging and sorting.
  *
- * `GET /task/all` accepts no query parameters and returns every task in one
- * array, so there is nothing to push server-side yet. If the backend later
- * grows `?filter=&q=&sort=` plus a stats envelope, this whole module goes away
- * and `tasksApi.list` forwards the search params instead.
+ * `GET /task/all` now scopes by `boardId`, pages and sorts — so board narrowing
+ * and `sortTasks` are gone from here entirely. What it still does not accept is
+ * a status or a keyword, so **the filter and the search box narrow one page of
+ * results, not the whole board.** That is a real limitation, not a rounding
+ * error: on a board with 60 tasks, "Done" shows the done tasks *among the 20
+ * currently loaded*, and the tab counts describe the same 20.
+ *
+ * The UI is built to say so rather than hide it — `TaskPagination` reports the
+ * server's totals alongside the page range, and `TaskSummary` labels its counts
+ * as page-scoped whenever there is more than one page.
+ *
+ * Delete this module the moment `TaskController` accepts `?status=` and `?q=`;
+ * everything in it becomes a query parameter and the counts become honest.
  */
 
 const FILTER_STATUS = {
@@ -35,26 +45,6 @@ function matchesSearch(task: Task, q: string) {
   )
 }
 
-const PRIORITY_WEIGHT = { HIGH: 3, MEDIUM: 2, LOW: 1 } as const
-
-function sortTasks(tasks: Task[], sort: TaskSort) {
-  const sorted = [...tasks]
-  switch (sort) {
-    case 'due_asc':
-      // Tasks without a deadline sink to the bottom rather than sorting as "empty".
-      return sorted.sort((a, b) => {
-        if (!a.dueDate) return b.dueDate ? 1 : 0
-        if (!b.dueDate) return -1
-        return a.dueDate.localeCompare(b.dueDate)
-      })
-    case 'title_asc':
-      return sorted.sort((a, b) => a.title.localeCompare(b.title))
-    case 'priority_desc':
-    default:
-      return sorted.sort((a, b) => PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority])
-  }
-}
-
 /**
  * Counts describe "how many would I see if I switched to that tab", so they are
  * computed after the search term is applied but before the status filter.
@@ -70,23 +60,14 @@ function buildStats(searched: Task[]): TaskStats {
 }
 
 /**
- * @param boardId narrows to one board before anything else, so the tab counts
- * describe that board rather than the whole account. `null` keeps every task,
- * which is the /tasks view.
- *
- * The board narrowing is here, alongside the status filter, because the API has
- * no board-scoped list endpoint — `/task/all` is the only one, and
- * `/board/{id}/task` does not exist. If one is added, drop this parameter and
- * let the request do the scoping.
+ * @param tasks the single page the server returned, already sorted by it.
+ * Nothing here reorders the rows — doing so would shuffle a page against the
+ * ordering the pagination is walking through.
  */
-export function buildListView(tasks: Task[], search: TaskSearch, boardId: string | null) {
-  const scoped = boardId ? tasks.filter((task) => task.boardId === boardId) : tasks
-  const searched = scoped.filter((task) => matchesSearch(task, search.q))
+export function buildPageView(tasks: Task[], search: TaskSearch) {
+  const searched = tasks.filter((task) => matchesSearch(task, search.q))
   return {
-    tasks: sortTasks(
-      searched.filter((task) => matchesFilter(task, search.filter)),
-      search.sort,
-    ),
+    tasks: searched.filter((task) => matchesFilter(task, search.filter)),
     stats: buildStats(searched),
   }
 }

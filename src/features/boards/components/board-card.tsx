@@ -9,19 +9,17 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import { DEFAULT_PAGE_SIZE } from '@/features/tasks/schemas'
 import { BOARD_COLOR_META } from '../constants'
-import { DEFAULT_BOARD_ICON, type Board, type BoardProgress } from '../schemas'
+import { DEFAULT_BOARD_ICON, type Board } from '../schemas'
 
 type Props = {
   board: Board
-  progress: BoardProgress
-  /** `false` while the task list backing the counts is still loading. */
-  hasProgress: boolean
   onEdit: (board: Board) => void
   onArchive: (board: Board) => void
 }
 
-export function BoardCard({ board, progress, hasProgress, onEdit, onArchive }: Props) {
+export function BoardCard({ board, onEdit, onArchive }: Props) {
   const color = BOARD_COLOR_META[board.color]
 
   return (
@@ -55,7 +53,13 @@ export function BoardCard({ board, progress, hasProgress, onEdit, onArchive }: P
             <Link
               to="/boards/$boardId"
               params={{ boardId: board.id }}
-              search={{ filter: 'all', q: '', sort: 'priority_desc' }}
+              search={{
+                filter: 'all',
+                q: '',
+                sort: 'created_desc',
+                page: 1,
+                size: DEFAULT_PAGE_SIZE,
+              }}
               className="font-medium wrap-anywhere before:absolute before:inset-0 before:content-[''] focus-visible:outline-none"
             >
               {board.title}
@@ -96,38 +100,10 @@ export function BoardCard({ board, progress, hasProgress, onEdit, onArchive }: P
           </div>
         </div>
 
-        <div className="mt-auto space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            {hasProgress ? (
-              <span className="tabular-nums">
-                {progress.total === 0
-                  ? 'No tasks yet'
-                  : `${progress.done} of ${progress.total} done`}
-              </span>
-            ) : (
-              <span className="block h-3 w-24 animate-pulse rounded bg-muted" />
-            )}
-            {hasProgress && progress.total > 0 && (
-              <span className="tabular-nums">{progress.completion}%</span>
-            )}
-          </div>
-
-          {/* Not the shadcn <Progress>: that primitive paints its indicator with
-              `bg-primary`, and these bars carry the board's own accent. */}
-          <div
-            className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={hasProgress ? progress.completion : undefined}
-            aria-label={`${board.title} completion`}
-          >
-            <span
-              className={cn('block h-full rounded-full transition-[width]', color.bar)}
-              style={{ width: `${hasProgress ? progress.completion : 0}%` }}
-            />
-          </div>
-        </div>
+        {/* The progress bar that used to sit here is gone: `BoardResponse`
+            carries no counts and the task endpoint is now board-scoped and
+            paged, so there is nothing left to derive "3 of 8 done" from. See
+            `features/boards/list.ts`. */}
       </div>
     </li>
   )
@@ -145,7 +121,6 @@ export function BoardCardSkeleton() {
             <span className="block h-3 w-full animate-pulse rounded bg-muted" />
           </div>
         </div>
-        <span className="block h-1.5 w-full animate-pulse rounded-full bg-muted" />
       </div>
     </li>
   )

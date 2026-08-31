@@ -1,5 +1,13 @@
 import { api } from '@/lib/api/client'
-import { taskListSchema, taskSchema, type Task, type TaskFormValues } from './schemas'
+import {
+  pagedTaskListSchema,
+  taskSchema,
+  TASK_SORT_PARAM,
+  type PagedTasks,
+  type Task,
+  type TaskFormValues,
+  type TaskSort,
+} from './schemas'
 
 /**
  * The backend maps `dueDate` to a Java `LocalDateTime`, whose default Jackson
@@ -22,18 +30,33 @@ function toPayload(values: TaskFormValues) {
   }
 }
 
+/**
+ * Everything `GET /task/all` accepts. `boardId` is **required** by the
+ * controller (`@RequestParam(required = true)`), which is why there is no
+ * cross-board variant of this call and no default for it here.
+ */
+export type TaskListParams = {
+  boardId: string
+  /** One-based, as it appears in the URL. Converted for Spring below. */
+  page: number
+  size: number
+  sort: TaskSort
+}
+
 export const tasksApi = {
   /**
-   * Every task the caller owns, in one array.
+   * One page of a board's tasks.
    *
-   * There is no board-scoped list endpoint. `TaskController` exposes only
-   * `/task/all`, and `/board/{id}/task` does not exist — so a board's tasks are
-   * filtered out of this one cached array in the browser, the same way the five
-   * status filters already are. See `features/tasks/list.ts`.
+   * Two translations happen here and nowhere else: the one-based page the URL
+   * carries becomes Spring's zero-based `page`, and the client's sort id becomes
+   * a `property,direction` pair the `PageableHandlerMethodArgumentResolver`
+   * understands.
    */
-  async list(): Promise<Task[]> {
-    const { data } = await api.get('/task/all')
-    return taskListSchema.parse(data)
+  async list({ boardId, page, size, sort }: TaskListParams): Promise<PagedTasks> {
+    const { data } = await api.get('/task/all', {
+      params: { boardId, page: page - 1, size, sort: TASK_SORT_PARAM[sort] },
+    })
+    return pagedTaskListSchema.parse(data)
   },
 
   async getById(id: string): Promise<Task> {

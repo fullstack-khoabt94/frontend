@@ -68,7 +68,8 @@ type Props = {
    */
   lockedBoardId?: string
   /**
-   * Boards to choose from when there is no locked board (the /tasks screen).
+   * Boards to choose from when there is no locked board. Unused while the board
+   * detail page is the only task screen and always locks one.
    * Create-only — see the field below.
    */
   boards?: Board[]

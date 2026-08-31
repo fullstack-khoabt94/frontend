@@ -33,8 +33,10 @@ export function AppHeader() {
           <Logo />
         </Link>
 
-        {/* `activeProps` comes from the router, so the highlight follows the URL
-            rather than a duplicated piece of state. */}
+        {/* One destination: `/task/all` requires a `boardId`, so there is no
+            cross-board list to link to any more. `activeProps` comes from the
+            router, so the highlight follows the URL rather than a duplicated
+            piece of state. */}
         <nav aria-label="Main" className="flex items-center gap-1">
           <Link
             to="/boards"
@@ -43,14 +45,6 @@ export function AppHeader() {
             activeProps={{ className: 'bg-secondary text-secondary-foreground' }}
           >
             Boards
-          </Link>
-          <Link
-            to="/tasks"
-            search={{ filter: 'all', q: '', sort: 'priority_desc' }}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            activeProps={{ className: 'bg-secondary text-secondary-foreground' }}
-          >
-            All tasks
           </Link>
         </nav>
 

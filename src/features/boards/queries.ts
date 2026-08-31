@@ -8,9 +8,9 @@ import {
 } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { getApiErrorMessage } from '@/lib/api/client'
-import { taskKeys, taskListQuery } from '@/features/tasks/queries'
+import { taskKeys } from '@/features/tasks/queries'
 import { boardsApi } from './api'
-import { buildBoardView, buildProgressByBoard } from './list'
+import { buildBoardView } from './list'
 import type { Board, BoardFormValues, BoardSearch } from './schemas'
 
 export const boardKeys = {
@@ -33,28 +33,20 @@ export const boardDetailQuery = (id: string) =>
   })
 
 /**
- * The board grid, plus the per-board task counts.
+ * The board grid.
  *
- * The counts come from the cross-board task list rather than from the board
- * payload — see `buildProgressByBoard`. It is a separate query so a slow or
- * failed task fetch degrades the cards to "no counts" instead of blocking the
- * boards themselves.
+ * It no longer fetches tasks alongside the boards: the per-board counts it used
+ * to derive from a cross-board `GET /task/all` cannot be rebuilt now that the
+ * endpoint is board-scoped and paginated. See `features/boards/list.ts`.
  */
 export function useBoardList(search: BoardSearch) {
   const query = useQuery(boardListQuery())
-  const tasks = useQuery(taskListQuery())
-
   const view = useMemo(() => buildBoardView(query.data ?? [], search), [query.data, search])
-  const progress = useMemo(
-    () => (tasks.data ? buildProgressByBoard(tasks.data) : undefined),
-    [tasks.data],
-  )
 
   return {
     ...query,
     boards: view.boards,
     counts: query.data ? view.counts : undefined,
-    progress,
   }
 }
 
@@ -101,8 +93,8 @@ export function useUpdateBoard() {
  * longer belongs to.
  *
  * The board's tasks are untouched server-side, but they now belong to an
- * archived board, so the task lists are invalidated too — the /tasks rows carry
- * a board chip that has to catch up.
+ * archived board, so the cached task pages are invalidated too — the board
+ * detail header reads its archived banner off the same data.
  */
 export function useArchiveBoard() {
   const client = useQueryClient()

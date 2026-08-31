@@ -61,6 +61,8 @@ Mirrors the backend `TaskResponse` exactly.
 | `priority`    | `'LOW' \| 'MEDIUM' \| 'HIGH'`       | Defaults to `MEDIUM`                        |
 | `dueDate`     | `string \| null`                    | Local date-time, no zone; must be future    |
 | `boardId`     | `string \| null`                    | Board it belongs to — see below             |
+| `createdAt`   | `string`                            | Local date-time; the default sort           |
+| `updatedAt`   | `string`                            | Local date-time                             |
 
 **There is no `userId`.** `TaskResponse` dropped it when ownership moved to the board; a task
 reaches its owner through `task.board.user`. Nothing on the client needed it.
@@ -68,9 +70,9 @@ reaches its owner through `task.board.user`. Nothing on the client needed it.
 **Enum casing is SCREAMING_SNAKE_CASE** because Jackson serialises the Java enums by
 `name()`. Do not lowercase them on the wire — deserialisation fails in both directions.
 
-**There is no `createdAt` / `updatedAt`.** The columns exist in the database and on
-`BaseEntity`, but `TaskResponse` does not expose them, so the list cannot be ordered by
-age. That is why the sort options are priority / due date / title.
+**`createdAt` / `updatedAt` are on the DTO now**, which is what makes ordering by age
+possible — `createdAt` is the backend's own `@PageableDefault` sort and the client's default
+too. Sorting by title or by priority is _not_ possible; section 6 says why.
 
 **`dueDate` is a Java `LocalDateTime`**, so the wire format is `"2026-08-30T00:00:00"` —
 no `Z`, no offset. Sending an `Instant`-style UTC string fails to parse
@@ -130,18 +132,23 @@ Three consequences, all deliberate rather than omissions:
 - `ArchiveBoardDialog` says outright that the board keeps its tasks and cannot be restored
   from the app. Both facts are surprising enough that discovering them later would be worse.
 
-### Tasks belong to boards
+### Tasks belong to boards, and a board is now the only way to reach them
 
-`Task.boardId` is **required on create** (`taskFormSchema`) but **nullable on read**. The
-asymmetry costs nothing and stops a task that predates the column from blanking the whole
-list; such a task renders on `/tasks` with a "No board" chip.
+`Task.boardId` is **required on create** (`taskFormSchema`) and still **nullable on read**,
+which now costs nothing at all: `V5__create_boards_table.sql` made `tasks.board_id NOT NULL`,
+so a board-less task cannot exist. The `.catch(null)` and the "No board" chip stay as cheap
+guards, not as a case anyone will hit.
 
-Where the id comes from depends on the screen, and `TaskFormDialog` takes one prop for each
-case:
+That column is why the cross-board screen is gone. `GET /task/all` takes `boardId` as a
+**required** parameter, so no single request returns tasks from more than one board — and the
+one reason `/tasks` was kept (somewhere for board-less tasks to appear) can no longer happen.
 
-- Inside a board, `lockedBoardId` fills it from the route and the picker is not rendered —
-  the board is context, not a choice.
-- On `/tasks`, `boards` renders a `<Select>`.
+`TaskFormDialog` still takes both props, and inside a board only the first is used:
+
+- `lockedBoardId` fills it from the route and the picker is not rendered — the board is
+  context, not a choice.
+- `boards` renders a `<Select>`. Nothing passes it today; it is what a cross-board create
+  would use if that screen ever returns.
 
 **The picker is create-only.** `UpdateTaskDto` has no `boardId`, so on an existing task the
 select is `disabled` — shown, so the row still says which board the task is in, but not
@@ -162,12 +169,21 @@ two sources of truth.
 `TaskFilter = 'all' | 'not_done' | 'todo' | 'in_progress' | 'done'`
 
 These are **client-side, UI-only concepts** and stay lowercase so URLs read well — they
-are never sent to the backend. `GET /task/all` takes no parameters, so filtering,
-searching, sorting and the tab counts are all derived in the browser by
-`features/tasks/list.ts`.
+are never sent to the backend. `GET /task/all` accepts `boardId`, `page`, `size` and `sort`,
+and nothing else: no `?status=`, no `?q=`.
 
-If the backend later grows `?filter=&q=&sort=` plus a stats envelope, delete that module
-and forward the search params from `tasksApi.list` instead.
+**So the filter and the search box narrow one page of results, not the whole board**, and the
+tab counts describe that same page. On a board of 60 tasks at 20 per page, "Done" shows the
+done tasks among the 20 currently loaded. That is a real limitation and the UI states it
+rather than hiding it: `TaskSummary` prints a page-scoped caption whenever there is more than
+one page, and `TaskPagination` reports the server's `total` underneath the list — the only
+figure on the screen that spans the whole board.
+
+Sorting is **not** in this bucket. It moved to the server with the pagination, because a
+client-side sort would reorder one page against the ordering the paging is walking through.
+
+Delete `features/tasks/list.ts` the moment the backend accepts `?status=` and `?q=`; every
+count on the screen becomes honest in the same commit.
 
 ### User
 
@@ -288,23 +304,30 @@ to `light`.
 /signup                      │ _auth  (pathless layout)
 /forgot-password             │        signed-in visitors are bounced to /boards
 /reset-password?token=…      ┘
-/boards?view&q                 _app   (pathless layout, requires a session)
-/boards/$boardId?filter&q&sort │
-/tasks?filter&q&sort           ┘
+/boards?view&q                           ┐
+/boards/$boardId?filter&q&sort&page&size │ _app (pathless layout, requires a session)
+/tasks → redirect: /boards               ┘
 ```
 
 **Boards are the entry point.** `/`, login and the `_auth` guard all land on `/boards`,
 because a task lives inside a board and the grid is where you pick one.
 
-**`/tasks` survives as the cross-board view.** It is the same list component scoped to
-`null` instead of a board id, and it is the only place that shows tasks from every board at
-once — plus the only place a task can be moved between boards. Deleting it would leave
-board-less legacy tasks with nowhere to appear.
+**`/tasks` is a redirect now, not a screen.** `GET /task/all` requires a `boardId`, so no
+request returns tasks from more than one board, and a cross-board page could only be
+assembled from one call per board — which is exactly the "load everything" the pagination
+exists to stop. The route file stays so old links land on `/boards` instead of a 404, and it
+carries the note on what to restore if a cross-board endpoint ever appears.
 
-**`/boards/$boardId` reuses the entire task toolbar** — `TaskFilterBar`, `TaskSummary`,
-`TaskItem`, both dialogs — under the same `taskSearchSchema`. The five filters, the search
-and the sort work identically inside a board; only the query's scope changes. Nothing about
-the task list was forked to make this work, and nothing should be.
+**`/boards/$boardId` is the task list.** It owns `TaskFilterBar`, `TaskSummary`, `TaskItem`,
+`TaskPagination` and both dialogs under `taskSearchSchema`. There is only one task screen, so
+there is nothing to keep in sync — but the components stay presentational and take everything
+by prop, because a second one is a plausible future.
+
+**Every change to what is being listed resets `page` to 1.** Filter, sort, page size and the
+debounced search all go through one `changeSearch` helper for that reason: keeping page 4
+while switching filters lands the visitor on an empty page of a shorter result. The route
+also clamps a `?page=` that is past the end — deleting the last row of the last page would
+otherwise read "Showing 41–40 of 40".
 
 **The board detail page is keyed on `boardId`.** `BoardDetailRoute` renders
 `<BoardDetailPage key={boardId} …>` so moving between boards remounts it and re-seeds the
@@ -317,9 +340,10 @@ states and the mutation wiring, and would make switching filters feel like a pag
 Instead the filter lives in the URL as a search param, so every view is still linkable,
 refresh-safe and back-button friendly.
 
-**Search params are the source of truth** for `filter`, `q` and `sort` on `/tasks`. They
-are validated by `taskSearchSchema` (zod) with `.catch()` fallbacks, so a hand-edited or
-stale URL degrades to defaults instead of crashing.
+**Search params are the source of truth** for `filter`, `q`, `sort`, `page` and `size` on
+`/boards/$boardId`. They are validated by `taskSearchSchema` (zod) with `.catch()` fallbacks,
+so a hand-edited or stale URL degrades to defaults instead of crashing — `?size=9999` becomes
+20 rather than a 400 from Spring, and `?page=0` becomes 1.
 
 **Guards live in `beforeLoad`**, not in components — a protected page never renders a frame
 before redirecting. `/_app` records the attempted URL in `?redirect=` so login returns the
@@ -386,14 +410,15 @@ src/
 │   │   ├── components/     board-card, board-form-dialog, archive-board-dialog,
 │   │   │                   board-empty-state
 │   │   ├── api.ts
-│   │   ├── list.ts         client-side search / archive split / per-board counts
+│   │   ├── list.ts         client-side search / archive split
 │   │   ├── queries.ts
 │   │   ├── schemas.ts
 │   │   └── constants.ts    colour and view metadata
 │   └── tasks/
-│       ├── components/     task-item, dialogs, filter bar, summary, empty states
-│       ├── api.ts
-│       ├── list.ts         client-side filter / search / sort / stats
+│       ├── components/     task-item, dialogs, filter bar, summary, pagination,
+│       │                   empty states
+│       ├── api.ts          request params in, PagedResponse out
+│       ├── list.ts         page-scoped filter / search / stats
 │       ├── queries.ts      query options, mutations, cache keys
 │       ├── schemas.ts
 │       └── constants.ts    labels, icons and colour classes per status/priority/filter
@@ -461,43 +486,75 @@ Two limits the form enforces on the backend's behalf:
 `GET /board/all` returns archived boards too, which is what the client wants — the
 active/archived split is a client-side view, like the task filters.
 
-### There is no board-scoped task endpoint
+**`BoardResponse` carries no task counts, and they can no longer be derived.** The grid used
+to compute "3 of 8 done" per board from one cross-board `GET /task/all`. That call is now
+board-scoped and paginated, so rebuilding the counts would take either a request per board
+on the landing page or a request per board big enough to hold every task. The card dropped
+its progress bar instead of showing a number that is quietly wrong — `buildProgressByBoard`
+and `BoardProgress` are gone with it. Adding `taskCount` and `doneCount` to `BoardResponse`
+(two `COUNT(*)`s on a table already filtered by board) brings the bar straight back.
 
-`/board/{id}/task` does not exist, and `TaskController` exposes only `/task/all`. So the
-client fetches every task once and narrows by `boardId` in the browser, exactly the way the
-five status filters already work — `buildListView(tasks, search, boardId)`.
+### Every task list is board-scoped
 
-That collapsed the board-scoped cache key back to a single `taskKeys.list()`: keying by board
-would fragment the cache into copies of one response.
+`/board/{id}/task` does not exist, but `GET /task/all` now takes **`boardId` as a required
+parameter**, which serves the same purpose. So the scoping moved out of the browser and into
+the request, and `buildListView(tasks, search, boardId)` became `buildPageView(page, search)`.
 
-`TaskResponse` also **dropped `userId`** — ownership moved to the board, and a task reaches
-its owner through `task.board.user`. Nothing on the client needed it, so nothing replaced it.
+That also reversed the cache key. `taskKeys.list(params)` is keyed by `(boardId, page, size,
+sort)` — a single shared array could not survive a paginated endpoint, since two pages of one
+board are genuinely different responses. `taskKeys.lists()` is the prefix the mutations
+invalidate and the optimistic toggle writes through.
+
+`TaskResponse` **dropped `userId`** — ownership moved to the board, and a task reaches its
+owner through `task.board.user`. Nothing on the client needed it, so nothing replaced it. It
+**gained `createdAt` and `updatedAt`**, which is what made ordering by age possible.
 
 **`UpdateTaskDto` has no `boardId`** and `updateTask` never touches `task.board`, so a task
 cannot change board. `tasksApi.update` deliberately does not send the field, and the picker in
 `TaskFormDialog` is `disabled` when editing — shown, so the row still says which board the
 task is in, but not editable.
 
-### Tasks — implemented, and the frontend matches it
+### Tasks — paginated, and the frontend matches it
 
-| Method   | Path         | Request                                                     | Response          |
-| -------- | ------------ | ----------------------------------------------------------- | ----------------- |
-| `GET`    | `/task/all`  | —                                                           | `200 Task[]`      |
-| `GET`    | `/task/{id}` | —                                                           | `200 Task`        |
-| `POST`   | `/task`      | `{ title, description, status, priority, dueDate, userId }` | `201 Task`        |
-| `PUT`    | `/task/{id}` | same, without `userId`                                      | `200 Task`        |
-| `DELETE` | `/task/{id}` | —                                                           | `201` + `"Done!"` |
+| Method   | Path                               | Request                                                      | Response                  |
+| -------- | ---------------------------------- | ------------------------------------------------------------ | ------------------------- |
+| `GET`    | `/task/all?boardId&page&size&sort` | —                                                            | `200 PagedResponse<Task>` |
+| `GET`    | `/task/{id}`                       | —                                                            | `200 Task`                |
+| `POST`   | `/task`                            | `{ boardId, title, description, status, priority, dueDate }` | `201 Task`                |
+| `PUT`    | `/task/{id}`                       | same, without `boardId`                                      | `200 Task`                |
+| `DELETE` | `/task/{id}`                       | —                                                            | `200` + `"Done"`          |
 
-Notes that shape the client:
+`PagedResponse<T>` is `{ data: T[], page, size, total, totalPages }` — Spring's `Page`
+flattened by `com.eazybytes.dtos.PagedResponse`. Notes that shape the client:
 
+- **`boardId` is required**, so there is no cross-board list. See above.
+- **`page` is zero-based on the wire**, because it is `Page#getNumber()`. The URL and every
+  component work in one-based pages; `tasksApi.list` is the only place that converts, in
+  both directions.
+- **`sort` is Spring's `property,direction`**, and only three properties are accepted:
+  `TaskServiceImpl.ALLOWED_SORT` is `{createdAt, dueDate, priority}`. `Sorts.sanitize`
+  **silently drops** anything else and falls back to `id DESC`, so an unsupported option
+  would not error — it would quietly return the wrong order. That is why `TASK_SORTS` lost
+  two entries:
+  - **`title_asc`** — `title` is not in `ALLOWED_SORT`.
+  - **`priority_desc`** — it _is_ in `ALLOWED_SORT`, but `Task.priority` is
+    `@Enumerated(STRING)`, so the database orders it alphabetically (`HIGH, LOW, MEDIUM`),
+    not by urgency. Offering it would be offering a wrong answer.
+  - Sorting by `dueDate` descending opens with every undated task, because Postgres puts
+    NULLs first descending and neither the query nor `Sorts` sets a `NULLS` clause.
+- **`size` is capped by Spring at 2000**, not by the controller. The client offers 10 / 20 /
+  50 and validates the search param against that list.
+- **Default page size is 20**, matching `@PageableDefault(size = 20)`, and the default sort
+  is `createdAt,desc` on both sides.
 - **Path is `/task`, singular**, and the collection is `/task/all`.
 - **Update is `PUT`, not `PATCH`**, and `UpdateTaskDto` requires every field — partial
   updates are not possible.
 - **There is no status-only endpoint.** Toggling a task sends a full `PUT` rebuilt from
-  the task already in the cache (`useUpdateTaskStatus`).
-- **`userId` is sent on create only**, read from `sessionStore`. When the backend takes
-  the owner from the authenticated principal, drop it from `tasksApi.create`.
-- `DELETE` answers `201` with a plain-text body; the client ignores both.
+  the task already in the cache (`useUpdateTaskStatus`), which writes optimistically across
+  every cached page rather than one key.
+- **`boardId` is sent on create only**, from the form. `CreateTaskDto` marks it `@NotNull`;
+  `UpdateTaskDto` has no such field.
+- `DELETE` answers `200` with a plain-text body; the client ignores both.
 
 ### Auth — signup and login are live
 
@@ -616,8 +673,11 @@ The rules that keep this from becoming a free-for-all:
   `text-background` so it inverts with the swatch.
 - Do not add a seventh colour without checking both themes.
 
-The board card's progress bar is hand-rolled rather than the shadcn `<Progress>`: that
-primitive paints its indicator `bg-primary`, and these bars carry the board's own accent.
+The board card no longer has a progress bar — `BoardResponse` carries no counts and the task
+endpoint is board-scoped, so there is nothing left to derive one from. If it comes back, note
+why it was hand-rolled rather than using the shadcn `<Progress>`: that primitive paints its
+indicator `bg-primary`, and these bars carry the board's own accent. `BOARD_COLOR_META` still
+exposes `bar` for it.
 
 Semantic status colours live alongside the brand ramp: `--status-todo` (neutral grey),
 `--status-progress` (= `brand-500`), `--status-done` (green — the one intentional non-brand
@@ -642,12 +702,12 @@ toggle switches it for the session.
 Tailwind's default breakpoints. The layout is mobile-first and verified from **320px**
 upward; there is no horizontal page scroll at any width.
 
-| Breakpoint    | What changes                                                                                                                                                                                                                                                   |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `< sm` (640)  | Auth pages drop the brand panel and show the small logo. Task rows hide the inline Start / Finish / Reopen buttons — the checkbox and the ⋯ menu carry those actions. Status filters render as a `<Select>`. Header hides the user's name, keeps the avatar.   |
-| `≥ sm` (640)  | Inline quick-action buttons on task rows. Status filters become the segmented tab strip (~500px wide, so it fits from 640 without scrolling). Task dialog widens to `max-w-lg`. Board grid goes 1 → 2 columns, and board detail's Edit button shows its label. |
-| `≥ md` (768)  | Summary cards go from 2×2 to a single row of 4.                                                                                                                                                                                                                |
-| `≥ lg` (1024) | Auth pages become the two-column split: brand panel left, form right. Board grid goes to 3 columns.                                                                                                                                                            |
+| Breakpoint    | What changes                                                                                                                                                                                                                                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `< sm` (640)  | Auth pages drop the brand panel and show the small logo. Task rows hide the inline Start / Finish / Reopen buttons — the checkbox and the ⋯ menu carry those actions. Status filters render as a `<Select>`. Pagination drops the numbered pages for a `3 / 8` counter between the arrows. Header hides the user's name, keeps the avatar. |
+| `≥ sm` (640)  | Inline quick-action buttons on task rows. Status filters become the segmented tab strip (~500px wide, so it fits from 640 without scrolling). Task dialog widens to `max-w-lg`. Board grid goes 1 → 2 columns, and board detail's Edit button shows its label.                                                                             |
+| `≥ md` (768)  | Summary cards go from 2×2 to a single row of 4.                                                                                                                                                                                                                                                                                            |
+| `≥ lg` (1024) | Auth pages become the two-column split: brand panel left, form right. Board grid goes to 3 columns.                                                                                                                                                                                                                                        |
 
 Rules that keep it working:
 
@@ -666,6 +726,9 @@ Rules that keep it working:
   five task filters.
 - **Content max-width is `max-w-5xl`** on both the header and the page body so they stay
   aligned on wide screens.
+- **Pagination never renders an unbounded row of buttons.** `pageWindow()` keeps first, last
+  and the current page's neighbours, with `…` for the gaps, so a board with 40 pages still
+  fits — and both ends stay one click away.
 - When adding a filter or a summary card, re-check the tab strip still fits at 640 — it is
   the tightest constraint in the layout.
 
@@ -676,9 +739,9 @@ Rules that keep it working:
 - **Imports** use the `@/` alias, never `../../..`.
 - **Files** are kebab-case; components are PascalCase; hooks are `use-*`.
 - **Query keys** come from `taskKeys` / `boardKeys` — never write an inline array key.
-  `taskKeys.list()` takes no argument: `/task/all` is the only list endpoint, so every screen
-  reads the same cached array and narrows it in the browser. Keying by board would fragment
-  the cache into copies of one response.
+  `taskKeys.list(params)` is keyed by the whole request — `(boardId, page, size, sort)` —
+  because the server does the scoping now and two pages of one board are different responses.
+  Mutations invalidate the `taskKeys.lists()` prefix so every cached page catches up.
 - **Mutations own their toasts.** Components call `mutate` and stay quiet.
 - **Loading states are skeletons**, not spinners, wherever the shape is known.
 - **Empty states are specific**: no-search-results, no-tasks-at-all and each per-filter
@@ -752,44 +815,54 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
   `@Future` on update as well as create, so any `PUT` carrying a past deadline is
   rejected — including a plain status toggle. Removing `@Future` from `UpdateTaskDto` (or
   dropping it entirely) is the fix; the client cannot work around it.
-- **No sort by age.** `TaskResponse` omits `createdAt` / `updatedAt`.
-- **No pagination.** `GET /task/all` returns every task and the browser does the rest.
-  Fine for small lists; revisit when the backend paginates.
-- **Four backend bugs break the feature today, and no client change routes around them:**
-  `@NotBlank` on `CreateTaskDto.boardId` (a `UUID`) makes every `POST /task` 500;
-  `TaskController.getAllTask` passes the principal's **userId** into `getTasks(boardId)`, so
-  `GET /task/all` 404s for everyone; `BoardServiceImpl.deleteBoard` never calls `save()`, so
-  archiving is a no-op; and `TaskServiceImpl.deleteTask` has its ownership check inverted.
-  The screens are written to work the moment these are fixed.
+- **The status filter and the search box are page-scoped.** `/task/all` accepts `boardId`,
+  `page`, `size` and `sort` and nothing else, so both narrow the rows already fetched rather
+  than the board. The summary caption and the pagination totals say so out loud. `?status=`
+  and `?q=` on the backend delete `features/tasks/list.ts` outright.
+- **Two sort options are missing because the backend cannot serve them.** `title` is not in
+  `TaskServiceImpl.ALLOWED_SORT`, and `priority` is in it but sorts alphabetically —
+  `Task.priority` is `@Enumerated(STRING)`, so the order is `HIGH, LOW, MEDIUM`. Priority
+  needs an ordinal column (or `EnumType.ORDINAL` plus a migration) before it can come back;
+  title needs one line in `ALLOWED_SORT`. `SORT_META` is where both land.
+- **Sorting by "Due latest" opens with undated tasks.** Postgres puts NULLs first on a
+  descending sort, and neither the repository query nor `Sorts.sanitize` sets a `NULLS`
+  clause. Backend fix; the client cannot reorder a page it only partly holds.
+- **`GET /task/all` does not start today.** `TaskRepository.findTasksByBoardOrderBy` is not a
+  parseable derived-query name — Spring Data only splits the `OrderBy` keyword when an
+  uppercase letter follows it, so the trailing `OrderBy` is read as a property and resolves
+  to `board.orderBy`, which does not exist. It throws `PropertyReferenceException` while the
+  repository bean is being created, so the **whole application fails to boot**; it compiles
+  cleanly, which is why a build does not catch it. Renaming the method to `findByBoard` fixes
+  it. Every screen in this app is blocked behind that one line.
 - **Boards can be archived but never restored or deleted.** `DELETE` soft-deletes and nothing
   reverses it, so the UI exposes neither action. Restore needs `isArchived` on
   `UpdateBoardDto`; a real delete needs a second endpoint plus `ON DELETE CASCADE` on
   `tasks.board_id`, currently `NO ACTION`.
 - **A task cannot be moved between boards.** `UpdateTaskDto` has no `boardId`. The picker is
   already built and merely `disabled` when editing.
-- **A board's tasks are filtered in the browser**, because `/board/{id}/task` does not exist
-  and `/task/all` is the only list endpoint — so every screen loads every task the account
-  owns. `buildListView`'s `boardId` parameter is the only thing a scoped endpoint would
-  displace.
-- **Board task counts are derived from `GET /task/all`.** `BoardResponse` carries no counts,
-  so the grid computes "3 of 8 done" per board from the cross-board task list it fetches
-  alongside the boards (`buildProgressByBoard`). It is a separate query, so a slow or failed
-  task fetch degrades the cards to "no counts" rather than blocking the boards. When the
-  backend adds `taskCount` / `doneCount` to `BoardResponse`, delete that function and read
-  the fields — and note the current version inherits the "no pagination" gap twice over.
+- **There is no cross-board task list.** `boardId` is required on `/task/all`, so `/tasks`
+  is a redirect to `/boards` and a task can only be seen inside its board. Making `boardId`
+  optional — falling back to the principal's boards — restores the screen; the route file
+  says what to rebuild.
+- **Board cards show no task counts.** `BoardResponse` carries none, and the paginated,
+  board-scoped task endpoint cannot supply them without a request per board. The progress bar
+  was removed rather than left showing a wrong number. `taskCount` / `doneCount` on
+  `BoardResponse` brings it back; `ArchiveBoardDialog` already degrades to copy without the
+  count, and the board _detail_ page still passes a real total from `PagedResponse.total`.
 - **Boards are sorted by title and cannot be reordered.** `BoardResponse` does carry
   `createdAt`, so ordering by age is available if wanted — unlike tasks.
 - **Board search and the active/archived split are client-side**, like the task filters —
   `GET /board/all` takes no parameters. `features/boards/list.ts` goes away if it grows
   `?q=` and `?archived=`.
-- **Archiving a board does not archive its tasks.** They stay live, still count toward the
-  board's progress, and still appear on `/tasks`. That is intended — archiving a board is
-  about tidying the grid, not hiding work — but it does mean `/tasks` can show tasks whose
-  board is archived.
-- **Nothing scopes tasks to the caller.** `POST /task`, `GET /task/{id}` and `PUT /task/{id}`
-  have no `@AuthenticationPrincipal` and no ownership guard, so any signed-in user can read or
-  edit any task by UUID and create one into someone else's board. `BoardController` does check
-  (`getValidBoard`); `TaskController` does not.
+- **Archiving a board does not archive its tasks.** They stay live and stay reachable by
+  opening the archived board. That is intended — archiving is about tidying the grid, not
+  hiding work.
+- **Nothing scopes tasks to the caller.** `GET /task/all`, `POST /task`, `GET /task/{id}` and
+  `PUT /task/{id}` have no `@AuthenticationPrincipal` and no ownership guard, so any signed-in
+  user can list, read or edit any task by UUID and create one into someone else's board.
+  `TaskServiceImpl` has its own `getValidBoard(boardId)` that skips the check
+  `BoardServiceImpl.getValidBoard(ownerId, boardId)` performs. The list endpoint is the worst
+  of them: one guessed `boardId` returns a whole board, paginated.
 - **The refresh deadline crosses the wire without a timezone.** `LoginResponse` types it as
   `LocalDateTime`, so a browser in a different zone from the server reads it hours off. This
   is a **deliberate call, not an oversight**: the client absorbs it (section 2), the effect is

@@ -10,11 +10,29 @@ const CARDS = [
   { key: 'done', label: 'Done', icon: CheckCircle2, tone: 'text-status-done' },
 ] as const
 
-export function TaskSummary({ stats, isLoading }: { stats?: TaskStats; isLoading?: boolean }) {
+type Props = {
+  stats?: TaskStats
+  isLoading?: boolean
+  /**
+   * True when the board spans more than one page. `/task/all` returns no
+   * aggregates — only `total` — so these four numbers are counted from the rows
+   * on screen and describe the page, not the board. Saying so is cheaper than
+   * having someone trust "3 done" on a board of sixty.
+   */
+  scopedToPage?: boolean
+}
+
+export function TaskSummary({ stats, isLoading, scopedToPage }: Props) {
   const completion = stats && stats.all > 0 ? Math.round((stats.done / stats.all) * 100) : 0
 
   return (
     <section aria-label="Task overview" className="space-y-4">
+      {scopedToPage && (
+        <p className="text-xs text-muted-foreground">
+          Counts describe the current page. Totals for the whole board are below the list.
+        </p>
+      )}
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {CARDS.map(({ key, label, icon: Icon, tone }) => (
           <div key={key} className="rounded-xl border bg-card p-4">

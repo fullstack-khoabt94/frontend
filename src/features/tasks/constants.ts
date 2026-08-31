@@ -69,8 +69,13 @@ export const FILTER_META: Record<
   done: { label: 'Done', shortLabel: 'Done', description: 'Completed tasks.' },
 }
 
+/**
+ * Only orderings `TaskServiceImpl.ALLOWED_SORT` actually honours — the server
+ * sorts now, and an option it drops would silently fall back to `id DESC`.
+ */
 export const SORT_META: Record<TaskSort, string> = {
-  priority_desc: 'Priority',
-  due_asc: 'Due date',
-  title_asc: 'Title (A–Z)',
+  created_desc: 'Newest first',
+  created_asc: 'Oldest first',
+  due_asc: 'Due soonest',
+  due_desc: 'Due latest',
 }

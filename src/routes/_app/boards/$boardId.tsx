@@ -13,6 +13,7 @@ import { TaskEmptyState } from '@/features/tasks/components/task-empty-state'
 import { TaskFilterBar } from '@/features/tasks/components/task-filter-bar'
 import { TaskFormDialog } from '@/features/tasks/components/task-form-dialog'
 import { TaskItem, TaskItemSkeleton } from '@/features/tasks/components/task-item'
+import { TaskPagination } from '@/features/tasks/components/task-pagination'
 import { TaskSummary } from '@/features/tasks/components/task-summary'
 import { FILTER_META } from '@/features/tasks/constants'
 import {
@@ -31,8 +32,8 @@ import {
 import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/_app/boards/$boardId')({
-  // The same filter / search / sort contract as /tasks, so a board view is
-  // just as linkable and the whole toolbar is reused unchanged.
+  // Filter, search, sort *and* the page live in the URL, so any page of any
+  // board is linkable and survives a refresh.
   validateSearch: taskSearchSchema,
   component: BoardDetailRoute,
 })
@@ -62,7 +63,12 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
 
   useEffect(() => {
     if (debouncedSearch === search.q) return
-    void navigate({ search: (previous) => ({ ...previous, q: debouncedSearch }), replace: true })
+    void navigate({
+      // Back to page 1: the old page number belongs to the unfiltered list, and
+      // keeping it would land the visitor on an empty page of a shorter result.
+      search: (previous) => ({ ...previous, q: debouncedSearch, page: 1 }),
+      replace: true,
+    })
   }, [debouncedSearch, search.q, navigate])
 
   const board = useBoard(boardId)
@@ -75,8 +81,31 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
   const updateStatus = useUpdateTaskStatus()
   const deleteTask = useDeleteTask()
 
-  const { tasks, stats } = list
+  const { tasks, stats, pageMeta } = list
   const isInitialLoading = list.isPending
+  // A page swap keeps the previous rows on screen; dim them rather than tearing
+  // the list down into skeletons.
+  const isSwappingPage = list.isPlaceholderData
+  const isNarrowed = Boolean(search.q) || search.filter !== 'all'
+
+  /** Any change to what is being listed restarts at page 1. */
+  const changeSearch = (next: Partial<typeof search>) =>
+    void navigate({ search: (previous) => ({ ...previous, ...next, page: 1 }) })
+
+  /**
+   * Deleting the last row of the last page — or opening a stale `?page=` link —
+   * leaves the visitor past the end, where the server answers with an empty
+   * `data` and the screen reads "Showing 41–40 of 40". Fall back to the last
+   * page that exists.
+   */
+  useEffect(() => {
+    if (!pageMeta || pageMeta.totalPages === 0) return
+    if (search.page <= pageMeta.totalPages) return
+    void navigate({
+      search: (previous) => ({ ...previous, page: pageMeta.totalPages }),
+      replace: true,
+    })
+  }, [pageMeta, search.page, navigate])
 
   const openCreate = () => {
     setEditingTask(undefined)
@@ -93,6 +122,11 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
       await updateTask.mutateAsync({ id: editingTask.id, values })
     } else {
       await createTask.mutateAsync(values)
+      // Under the default "Newest first" the new row is on page 1, so creating
+      // one from page 4 would file it out of sight. Jumping back is right for
+      // that ordering and harmless for the others, where its position is not
+      // predictable from here anyway.
+      changeSearch({})
     }
     setFormOpen(false)
   }
@@ -168,10 +202,12 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
               <span className="block h-8 w-48 animate-pulse rounded bg-muted" />
             )}
             <p className="text-sm text-muted-foreground wrap-anywhere">
+              {/* The fallback counts the whole board, not the page — `total` is
+                  the one figure the server sends that spans every page. */}
               {data?.description ??
-                (stats?.not_done
-                  ? `${stats.not_done} task${stats.not_done === 1 ? '' : 's'} left to finish.`
-                  : 'Everything here is done.')}
+                (pageMeta
+                  ? `${pageMeta.total} task${pageMeta.total === 1 ? '' : 's'} in this board.`
+                  : ' ')}
             </p>
           </div>
         </div>
@@ -220,20 +256,20 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
       )}
 
       <div className="space-y-8">
-        <TaskSummary stats={stats} isLoading={isInitialLoading} />
+        <TaskSummary
+          stats={stats}
+          isLoading={isInitialLoading}
+          scopedToPage={(pageMeta?.totalPages ?? 1) > 1}
+        />
 
         <section className="space-y-4">
           <TaskFilterBar
             filter={search.filter}
-            onFilterChange={(filter) =>
-              void navigate({ search: (previous) => ({ ...previous, filter }) })
-            }
+            onFilterChange={(filter) => changeSearch({ filter })}
             search={searchInput}
             onSearchChange={setSearchInput}
             sort={search.sort}
-            onSortChange={(sort) =>
-              void navigate({ search: (previous) => ({ ...previous, sort }) })
-            }
+            onSortChange={(sort) => changeSearch({ sort })}
             stats={stats}
           />
 
@@ -261,7 +297,10 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
               onClearSearch={() => setSearchInput('')}
             />
           ) : (
-            <ul className="space-y-3" aria-busy={list.isFetching}>
+            <ul
+              className={cn('space-y-3 transition-opacity', isSwappingPage && 'opacity-60')}
+              aria-busy={list.isFetching}
+            >
               {tasks.map((task) => (
                 <TaskItem
                   key={task.id}
@@ -273,6 +312,16 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
                 />
               ))}
             </ul>
+          )}
+
+          {pageMeta && (
+            <TaskPagination
+              meta={pageMeta}
+              onPageChange={(page) => void navigate({ search: (prev) => ({ ...prev, page }) })}
+              onSizeChange={(size) => changeSearch({ size })}
+              isFetching={list.isFetching}
+              isNarrowed={isNarrowed}
+            />
           )}
         </section>
       </div>
@@ -304,7 +353,8 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
 
       <ArchiveBoardDialog
         board={archiveOpen ? data : undefined}
-        taskCount={stats?.all}
+        // The board's real task count, not the page's.
+        taskCount={pageMeta?.total}
         onOpenChange={setArchiveOpen}
         onConfirm={() => {
           if (!data) return

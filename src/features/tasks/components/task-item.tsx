@@ -34,9 +34,10 @@ type Props = {
   onStatusChange: (task: Task, status: TaskStatus) => void
   isMutating?: boolean
   /**
-   * The task's board, shown as a chip. Only passed on the cross-board /tasks
-   * screen — inside a board every row would carry the same chip, which tells
-   * the reader nothing.
+   * The task's board, shown as a chip. Nothing passes it today: `/task/all` is
+   * board-scoped, so the only task list is inside a board, where every row would
+   * carry the same chip and tell the reader nothing. It stays for the
+   * cross-board screen that a non-required `boardId` would bring back.
    */
   board?: Board
 }

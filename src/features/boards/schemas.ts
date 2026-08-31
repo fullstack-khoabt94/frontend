@@ -121,11 +121,3 @@ export const boardSearchSchema = z.object({
   q: z.string().trim().catch('').default(''),
 })
 export type BoardSearch = z.output<typeof boardSearchSchema>
-
-/** Per-board task counts, derived in the browser. See `features/boards/list.ts`. */
-export type BoardProgress = {
-  total: number
-  done: number
-  /** 0–100, rounded. `0` when the board is empty. */
-  completion: number
-}

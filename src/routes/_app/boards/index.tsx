@@ -9,7 +9,6 @@ import { BoardCard, BoardCardSkeleton } from '@/features/boards/components/board
 import { BoardEmptyState } from '@/features/boards/components/board-empty-state'
 import { BoardFormDialog } from '@/features/boards/components/board-form-dialog'
 import { BOARD_VIEW_META } from '@/features/boards/constants'
-import { progressFor } from '@/features/boards/list'
 import {
   useArchiveBoard,
   useBoardList,
@@ -51,7 +50,7 @@ function BoardsPage() {
   const updateBoard = useUpdateBoard()
   const archiveBoard = useArchiveBoard()
 
-  const { boards, counts, progress } = list
+  const { boards, counts } = list
   const isInitialLoading = list.isPending
 
   const openCreate = () => {
@@ -184,8 +183,6 @@ function BoardsPage() {
               <BoardCard
                 key={board.id}
                 board={board}
-                progress={progressFor(progress, board.id)}
-                hasProgress={progress !== undefined}
                 onEdit={openEdit}
                 onArchive={setArchivingBoard}
               />
@@ -202,9 +199,12 @@ function BoardsPage() {
         isPending={createBoard.isPending || updateBoard.isPending}
       />
 
+      {/* No `taskCount` from the grid: the boards list carries no counts and
+          the task endpoint is board-scoped now, so the dialog drops the
+          "and its N tasks are kept" clause here. The board detail page still
+          passes a real count, where one page of the board is already loaded. */}
       <ArchiveBoardDialog
         board={archivingBoard}
-        taskCount={archivingBoard ? progressFor(progress, archivingBoard.id).total : undefined}
         onOpenChange={(open) => !open && setArchivingBoard(undefined)}
         onConfirm={handleArchive}
         isPending={archiveBoard.isPending}

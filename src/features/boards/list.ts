@@ -1,5 +1,4 @@
-import type { Task } from '@/features/tasks/schemas'
-import type { Board, BoardProgress, BoardSearch } from './schemas'
+import type { Board, BoardSearch } from './schemas'
 
 /**
  * Searching and the active/archived split happen in the browser, for the same
@@ -32,37 +31,18 @@ export function buildBoardView(boards: Board[], search: BoardSearch) {
   }
 }
 
-const EMPTY_PROGRESS: BoardProgress = { total: 0, done: 0, completion: 0 }
-
 /**
- * Per-board task counts.
+ * There are no per-board task counts here any more, and there is no way to
+ * compute them.
  *
- * `BoardResponse` carries no counts, so the board grid derives them from the
- * one `GET /task/all` it already has cached. That is a deliberate trade: it
- * reuses a live endpoint instead of inventing a contract the backend has not
- * built, and it costs one request that the /tasks screen makes anyway.
+ * The grid used to derive "3 of 8 done" from one cross-board `GET /task/all`.
+ * That call now requires a `boardId` and returns one page, so the only ways to
+ * rebuild the counts would be a request per board (N+1 on the landing page) or
+ * a request per board large enough to hold every task — which is the "fetch
+ * everything" the pagination was added to stop.
  *
- * When the backend adds `taskCount` / `doneCount` to `BoardResponse`, delete
- * this function and read the fields off the board.
+ * So the cards dropped the progress bar instead of showing a number that is
+ * quietly wrong. `BoardResponse` needs `taskCount` and `doneCount`; both are a
+ * `COUNT(*)` on a table already indexed by board, and the card is still shaped
+ * to display them.
  */
-export function buildProgressByBoard(tasks: Task[]): Map<string, BoardProgress> {
-  const progress = new Map<string, BoardProgress>()
-
-  for (const task of tasks) {
-    if (!task.boardId) continue
-    const current = progress.get(task.boardId) ?? { total: 0, done: 0, completion: 0 }
-    current.total += 1
-    if (task.status === 'DONE') current.done += 1
-    progress.set(task.boardId, current)
-  }
-
-  for (const entry of progress.values()) {
-    entry.completion = entry.total > 0 ? Math.round((entry.done / entry.total) * 100) : 0
-  }
-
-  return progress
-}
-
-export function progressFor(progress: Map<string, BoardProgress> | undefined, boardId: string) {
-  return progress?.get(boardId) ?? EMPTY_PROGRESS
-}
