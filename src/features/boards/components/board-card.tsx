@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Archive, MoreHorizontal, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -18,18 +18,10 @@ type Props = {
   /** `false` while the task list backing the counts is still loading. */
   hasProgress: boolean
   onEdit: (board: Board) => void
-  onArchiveChange: (board: Board, isArchived: boolean) => void
-  onDelete: (board: Board) => void
+  onArchive: (board: Board) => void
 }
 
-export function BoardCard({
-  board,
-  progress,
-  hasProgress,
-  onEdit,
-  onArchiveChange,
-  onDelete,
-}: Props) {
+export function BoardCard({ board, progress, hasProgress, onEdit, onArchive }: Props) {
   const color = BOARD_COLOR_META[board.color]
 
   return (
@@ -66,7 +58,7 @@ export function BoardCard({
               search={{ filter: 'all', q: '', sort: 'priority_desc' }}
               className="font-medium wrap-anywhere before:absolute before:inset-0 before:content-[''] focus-visible:outline-none"
             >
-              {board.name}
+              {board.title}
             </Link>
             {board.description && (
               <p className="line-clamp-2 text-sm text-muted-foreground wrap-anywhere">
@@ -78,7 +70,7 @@ export function BoardCard({
           <div className="relative shrink-0">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${board.name}`}>
+                <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${board.title}`}>
                   <MoreHorizontal className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -87,22 +79,18 @@ export function BoardCard({
                   <Pencil className="size-4" />
                   Edit board
                 </DropdownMenuItem>
-                {board.isArchived ? (
-                  <DropdownMenuItem onSelect={() => onArchiveChange(board, false)}>
-                    <ArchiveRestore className="size-4" />
-                    Restore board
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem onSelect={() => onArchiveChange(board, true)}>
-                    <Archive className="size-4" />
-                    Archive board
-                  </DropdownMenuItem>
+                {/* No Restore and no Delete: `DELETE /board/{id}` soft-deletes,
+                    and nothing sets `isArchived` back or removes the row. An
+                    archived board keeps only Edit. */}
+                {!board.isArchived && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="destructive" onSelect={() => onArchive(board)}>
+                      <Archive className="size-4" />
+                      Archive board
+                    </DropdownMenuItem>
+                  </>
                 )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onSelect={() => onDelete(board)}>
-                  <Trash2 className="size-4" />
-                  Delete board
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -132,7 +120,7 @@ export function BoardCard({
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={hasProgress ? progress.completion : undefined}
-            aria-label={`${board.name} completion`}
+            aria-label={`${board.title} completion`}
           >
             <span
               className={cn('block h-full rounded-full transition-[width]', color.bar)}

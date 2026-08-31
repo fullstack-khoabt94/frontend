@@ -1,19 +1,20 @@
 import { api } from '@/lib/api/client'
-import { sessionStore } from '@/features/auth/session'
 import { boardListSchema, boardSchema, type Board, type BoardFormValues } from './schemas'
 
 /**
- * Paths follow the `/task` convention exactly — singular resource, `/all` for
- * the collection — so the two features read the same way on the backend.
+ * Paths follow the `/task` convention — singular resource, `/all` for the
+ * collection.
+ *
+ * `CreateBoardDto` carries no owner: `BoardController` reads it off the
+ * `@AuthenticationPrincipal`, unlike `tasksApi.create`, which still sends one.
+ * Nothing here looks at `sessionStore`.
  */
 function toPayload(values: BoardFormValues) {
   return {
-    name: values.name,
-    // The column is nullable; an empty box means "no description", not "".
-    description: values.description?.trim() ? values.description : null,
+    title: values.title,
+    description: values.description,
     color: values.color,
     icon: values.icon,
-    isArchived: values.isArchived,
   }
 }
 
@@ -29,20 +30,27 @@ export const boardsApi = {
   },
 
   async create(values: BoardFormValues): Promise<Board> {
-    // Mirrors `tasksApi.create`: the owner is sent explicitly until the backend
-    // reads it off the authenticated principal.
-    const userId = sessionStore.getState().user?.id
-    const { data } = await api.post('/board', { ...toPayload(values), userId })
+    const { data } = await api.post('/board', toPayload(values))
     return boardSchema.parse(data)
   },
 
-  /** Full replace, like `PUT /task/{id}` — UpdateBoardDto is expected to require every field. */
+  /** Full replace. `UpdateBoardDto` has no `isArchived`, so this cannot archive. */
   async update(id: string, values: BoardFormValues): Promise<Board> {
     const { data } = await api.put(`/board/${id}`, toPayload(values))
     return boardSchema.parse(data)
   },
 
-  async remove(id: string): Promise<void> {
+  /**
+   * Archive, not delete.
+   *
+   * `BoardServiceImpl.deleteBoard` is a soft delete — it flips `isArchived` and
+   * leaves the row and every task under it in place. There is no hard-delete
+   * endpoint, so the UI does not offer one, and there is no endpoint that sets
+   * the flag back either, so there is no restore.
+   *
+   * The response body is a plain-text `"Done"`; the client ignores it.
+   */
+  async archive(id: string): Promise<void> {
     await api.delete(`/board/${id}`)
   },
 }

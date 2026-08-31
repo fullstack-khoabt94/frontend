@@ -1,4 +1,4 @@
-import { Archive, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -9,31 +9,33 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
 import type { Board } from '../schemas'
 
 type Props = {
   board?: Board
-  /** Tasks that would go with it, or `undefined` while the count is unknown. */
+  /** Tasks that go with it, or `undefined` while the count is unknown. */
   taskCount?: number
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
-  onArchiveInstead: () => void
   isPending: boolean
 }
 
 /**
- * Deleting a board takes its tasks with it, so the copy has to say so with a
- * number rather than a vague warning — and archiving is offered right here,
- * because "I want it out of my way" is the far more common intent and it is
- * reversible.
+ * Archiving is confirmed, not silent, and the copy is blunt about two things
+ * the API forces:
+ *
+ * - it cannot be undone from this app, because nothing sets `isArchived` back
+ * - the tasks are kept, because `deleteBoard` is a soft delete that never
+ *   touches them
+ *
+ * Both are surprising enough that leaving them to be discovered would be worse
+ * than saying them here.
  */
-export function DeleteBoardDialog({
+export function ArchiveBoardDialog({
   board,
   taskCount,
   onOpenChange,
   onConfirm,
-  onArchiveInstead,
   isPending,
 }: Props) {
   const hasTasks = taskCount !== undefined && taskCount > 0
@@ -42,29 +44,16 @@ export function DeleteBoardDialog({
     <AlertDialog open={Boolean(board)} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete this board?</AlertDialogTitle>
+          <AlertDialogTitle>Archive this board?</AlertDialogTitle>
           <AlertDialogDescription>
-            <span className="font-medium text-foreground">{board?.name}</span>
+            <span className="font-medium text-foreground">{board?.title}</span> moves to the
+            Archived tab
             {hasTasks
-              ? ` and its ${taskCount} task${taskCount === 1 ? '' : 's'} will be removed permanently.`
-              : ' will be removed permanently.'}{' '}
-            This cannot be undone.
+              ? `, and its ${taskCount} task${taskCount === 1 ? '' : 's'} are kept.`
+              : '.'}{' '}
+            There is no way to restore it from here.
           </AlertDialogDescription>
         </AlertDialogHeader>
-
-        {!board?.isArchived && (
-          <Button
-            variant="outline"
-            size="lg"
-            className="w-full"
-            disabled={isPending}
-            onClick={onArchiveInstead}
-          >
-            <Archive className="size-4" />
-            Archive instead — keeps everything
-          </Button>
-        )}
-
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
@@ -76,7 +65,7 @@ export function DeleteBoardDialog({
             className="bg-destructive text-white hover:bg-destructive/90"
           >
             {isPending && <Loader2 className="size-4 animate-spin" />}
-            Delete board
+            Archive board
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

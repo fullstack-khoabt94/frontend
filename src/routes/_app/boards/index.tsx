@@ -4,17 +4,16 @@ import { Plus, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
+import { ArchiveBoardDialog } from '@/features/boards/components/archive-board-dialog'
 import { BoardCard, BoardCardSkeleton } from '@/features/boards/components/board-card'
 import { BoardEmptyState } from '@/features/boards/components/board-empty-state'
 import { BoardFormDialog } from '@/features/boards/components/board-form-dialog'
-import { DeleteBoardDialog } from '@/features/boards/components/delete-board-dialog'
 import { BOARD_VIEW_META } from '@/features/boards/constants'
 import { progressFor } from '@/features/boards/list'
 import {
+  useArchiveBoard,
   useBoardList,
   useCreateBoard,
-  useDeleteBoard,
-  useSetBoardArchived,
   useUpdateBoard,
 } from '@/features/boards/queries'
 import {
@@ -40,7 +39,7 @@ function BoardsPage() {
 
   const [formOpen, setFormOpen] = useState(false)
   const [editingBoard, setEditingBoard] = useState<Board | undefined>()
-  const [deletingBoard, setDeletingBoard] = useState<Board | undefined>()
+  const [archivingBoard, setArchivingBoard] = useState<Board | undefined>()
 
   useEffect(() => {
     if (debouncedSearch === search.q) return
@@ -50,8 +49,7 @@ function BoardsPage() {
   const list = useBoardList(search)
   const createBoard = useCreateBoard()
   const updateBoard = useUpdateBoard()
-  const setArchived = useSetBoardArchived()
-  const deleteBoard = useDeleteBoard()
+  const archiveBoard = useArchiveBoard()
 
   const { boards, counts, progress } = list
   const isInitialLoading = list.isPending
@@ -75,18 +73,12 @@ function BoardsPage() {
     setFormOpen(false)
   }
 
-  const handleDelete = () => {
-    if (!deletingBoard) return
-    deleteBoard.mutate(
-      { id: deletingBoard.id, name: deletingBoard.name },
-      { onSettled: () => setDeletingBoard(undefined) },
+  const handleArchive = () => {
+    if (!archivingBoard) return
+    archiveBoard.mutate(
+      { board: archivingBoard },
+      { onSettled: () => setArchivingBoard(undefined) },
     )
-  }
-
-  const handleArchiveInstead = () => {
-    if (!deletingBoard) return
-    setArchived.mutate({ board: deletingBoard, isArchived: true })
-    setDeletingBoard(undefined)
   }
 
   return (
@@ -195,10 +187,7 @@ function BoardsPage() {
                 progress={progressFor(progress, board.id)}
                 hasProgress={progress !== undefined}
                 onEdit={openEdit}
-                onArchiveChange={(target, isArchived) =>
-                  setArchived.mutate({ board: target, isArchived })
-                }
-                onDelete={setDeletingBoard}
+                onArchive={setArchivingBoard}
               />
             ))}
           </ul>
@@ -213,13 +202,12 @@ function BoardsPage() {
         isPending={createBoard.isPending || updateBoard.isPending}
       />
 
-      <DeleteBoardDialog
-        board={deletingBoard}
-        taskCount={deletingBoard ? progressFor(progress, deletingBoard.id).total : undefined}
-        onOpenChange={(open) => !open && setDeletingBoard(undefined)}
-        onConfirm={handleDelete}
-        onArchiveInstead={handleArchiveInstead}
-        isPending={deleteBoard.isPending}
+      <ArchiveBoardDialog
+        board={archivingBoard}
+        taskCount={archivingBoard ? progressFor(progress, archivingBoard.id).total : undefined}
+        onOpenChange={(open) => !open && setArchivingBoard(undefined)}
+        onConfirm={handleArchive}
+        isPending={archiveBoard.isPending}
       />
     </main>
   )

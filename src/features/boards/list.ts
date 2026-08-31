@@ -10,7 +10,7 @@ function matchesSearch(board: Board, q: string) {
   if (!q) return true
   const needle = q.toLowerCase()
   return (
-    board.name.toLowerCase().includes(needle) ||
+    board.title.toLowerCase().includes(needle) ||
     (board.description ?? '').toLowerCase().includes(needle)
   )
 }
@@ -22,8 +22,9 @@ export function buildBoardView(boards: Board[], search: BoardSearch) {
   return {
     boards: searched
       .filter((board) => board.isArchived === wantArchived)
-      // Boards have no createdAt, so name is the only stable order available.
-      .sort((a, b) => a.name.localeCompare(b.name)),
+      // BoardResponse does carry createdAt, but title is the order that reads
+      // best on a grid the user is scanning by name.
+      .sort((a, b) => a.title.localeCompare(b.title)),
     counts: {
       active: searched.filter((board) => !board.isArchived).length,
       archived: searched.filter((board) => board.isArchived).length,

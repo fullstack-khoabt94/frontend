@@ -39,7 +39,7 @@ export function BoardEmptyState({ view, search, onCreate, onClearSearch }: Props
         <div className="space-y-1">
           <p className="font-medium">Nothing archived</p>
           <p className="text-sm text-muted-foreground">
-            Boards you archive are kept here, tasks and all, until you restore or delete them.
+            Boards you archive are kept here, tasks and all.
           </p>
         </div>
       </div>

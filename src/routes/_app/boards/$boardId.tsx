@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { Archive, ArchiveRestore, ChevronLeft, Pencil, Plus } from 'lucide-react'
+import { Archive, ChevronLeft, Pencil, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
+import { ArchiveBoardDialog } from '@/features/boards/components/archive-board-dialog'
 import { BoardFormDialog } from '@/features/boards/components/board-form-dialog'
 import { BOARD_COLOR_META } from '@/features/boards/constants'
-import { useBoard, useSetBoardArchived, useUpdateBoard } from '@/features/boards/queries'
+import { useArchiveBoard, useBoard, useUpdateBoard } from '@/features/boards/queries'
 import { DEFAULT_BOARD_ICON, type BoardFormValues } from '@/features/boards/schemas'
 import { DeleteTaskDialog } from '@/features/tasks/components/delete-task-dialog'
 import { TaskEmptyState } from '@/features/tasks/components/task-empty-state'
@@ -57,6 +58,7 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
   const [editingTask, setEditingTask] = useState<Task | undefined>()
   const [deletingTask, setDeletingTask] = useState<Task | undefined>()
   const [boardFormOpen, setBoardFormOpen] = useState(false)
+  const [archiveOpen, setArchiveOpen] = useState(false)
 
   useEffect(() => {
     if (debouncedSearch === search.q) return
@@ -65,12 +67,12 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
 
   const board = useBoard(boardId)
   const updateBoard = useUpdateBoard()
-  const setArchived = useSetBoardArchived()
+  const archiveBoard = useArchiveBoard()
 
   const list = useTaskList(search, boardId)
   const createTask = useCreateTask()
   const updateTask = useUpdateTask()
-  const updateStatus = useUpdateTaskStatus(boardId)
+  const updateStatus = useUpdateTaskStatus()
   const deleteTask = useDeleteTask()
 
   const { tasks, stats } = list
@@ -160,7 +162,7 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
           <div className="min-w-0 space-y-1">
             {data ? (
               <h1 className="text-2xl font-semibold tracking-tight wrap-anywhere sm:text-3xl">
-                {data.name}
+                {data.title}
               </h1>
             ) : (
               <span className="block h-8 w-48 animate-pulse rounded bg-muted" />
@@ -186,21 +188,19 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
                 <Pencil className="size-4" />
                 <span className="sr-only sm:not-sr-only">Edit board</span>
               </Button>
-              <Button
-                variant="outline"
-                size="lg"
-                className="h-10"
-                onClick={() => setArchived.mutate({ board: data, isArchived: !data.isArchived })}
-              >
-                {data.isArchived ? (
-                  <ArchiveRestore className="size-4" />
-                ) : (
+              {/* Archived boards lose the button: nothing on the API sets
+                  `isArchived` back, so there is no second state to toggle to. */}
+              {!data.isArchived && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="h-10"
+                  onClick={() => setArchiveOpen(true)}
+                >
                   <Archive className="size-4" />
-                )}
-                <span className="sr-only">
-                  {data.isArchived ? 'Restore board' : 'Archive board'}
-                </span>
-              </Button>
+                  <span className="sr-only">Archive board</span>
+                </Button>
+              )}
             </>
           )}
           <Button size="lg" className="h-10" onClick={openCreate}>
@@ -211,19 +211,11 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
       </div>
 
       {data?.isArchived && (
-        <div className="mb-6 flex flex-col gap-3 rounded-xl border border-dashed bg-muted/40 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-6 rounded-xl border border-dashed bg-muted/40 p-4 text-sm">
           <p className="text-muted-foreground">
-            This board is archived. Its tasks are still here and still editable.
+            This board is archived. Its tasks are still here and still editable, but the board
+            cannot be restored from here.
           </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            onClick={() => setArchived.mutate({ board: data, isArchived: false })}
-          >
-            <ArchiveRestore className="size-4" />
-            Restore board
-          </Button>
         </div>
       )}
 
@@ -308,6 +300,17 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
         board={data}
         onSubmit={handleBoardSubmit}
         isPending={updateBoard.isPending}
+      />
+
+      <ArchiveBoardDialog
+        board={archiveOpen ? data : undefined}
+        taskCount={stats?.all}
+        onOpenChange={setArchiveOpen}
+        onConfirm={() => {
+          if (!data) return
+          archiveBoard.mutate({ board: data }, { onSettled: () => setArchiveOpen(false) })
+        }}
+        isPending={archiveBoard.isPending}
       />
     </main>
   )

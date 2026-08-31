@@ -28,20 +28,18 @@ import {
 } from '../schemas'
 
 const EMPTY: BoardFormInput = {
-  name: '',
+  title: '',
   description: '',
   color: DEFAULT_BOARD_COLOR,
   icon: DEFAULT_BOARD_ICON,
-  isArchived: false,
 }
 
 function toFormValues(board: Board): BoardFormInput {
   return {
-    name: board.name,
+    title: board.title,
     description: board.description ?? '',
     color: board.color,
     icon: board.icon ?? DEFAULT_BOARD_ICON,
-    isArchived: board.isArchived,
   }
 }
 
@@ -91,16 +89,18 @@ export function BoardFormDialog({ open, onOpenChange, board, onSubmit, isPending
           className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-6"
         >
           <FieldGroup className="-mx-1 min-h-0 overflow-y-auto px-1">
-            <Field data-invalid={Boolean(form.formState.errors.name)}>
-              <FieldLabel htmlFor="board-name">Name</FieldLabel>
+            <Field data-invalid={Boolean(form.formState.errors.title)}>
+              <FieldLabel htmlFor="board-title">Title</FieldLabel>
               <Input
-                id="board-name"
+                id="board-title"
                 placeholder="e.g. Product launch"
+                maxLength={50}
                 autoFocus
-                aria-invalid={Boolean(form.formState.errors.name)}
-                {...form.register('name')}
+                aria-invalid={Boolean(form.formState.errors.title)}
+                {...form.register('title')}
               />
-              <FieldError errors={[form.formState.errors.name]} />
+              <FieldDescription>Up to 50 characters.</FieldDescription>
+              <FieldError errors={[form.formState.errors.title]} />
             </Field>
 
             <Field data-invalid={Boolean(form.formState.errors.description)}>
@@ -109,9 +109,9 @@ export function BoardFormDialog({ open, onOpenChange, board, onSubmit, isPending
                 id="board-description"
                 rows={3}
                 placeholder="What belongs on this board?"
+                aria-invalid={Boolean(form.formState.errors.description)}
                 {...form.register('description')}
               />
-              <FieldDescription>Optional.</FieldDescription>
               <FieldError errors={[form.formState.errors.description]} />
             </Field>
 
