@@ -2,12 +2,12 @@ import { api } from '@/lib/api/client'
 import { boardListSchema, boardSchema, type Board, type BoardFormValues } from './schemas'
 
 /**
- * Paths follow the `/task` convention — singular resource, `/all` for the
- * collection.
+ * Singular resource, `/all` for the collection — the same convention tasks
+ * follow, one level down at `/board/{boardId}/task`.
  *
  * `CreateBoardDto` carries no owner: `BoardController` reads it off the
- * `@AuthenticationPrincipal`, unlike `tasksApi.create`, which still sends one.
- * Nothing here looks at `sessionStore`.
+ * `@AuthenticationPrincipal`. `tasksApi` does the same for both the owner and
+ * the board now, so nothing in either module looks at `sessionStore`.
  */
 function toPayload(values: BoardFormValues) {
   return {

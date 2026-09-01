@@ -4,8 +4,8 @@ import type { Task, TaskFilter, TaskSearch, TaskStats } from './schemas'
  * What is left of the client-side list pipeline after the backend took over
  * paging and sorting.
  *
- * `GET /task/all` now scopes by `boardId`, pages and sorts — so board narrowing
- * and `sortTasks` are gone from here entirely. What it still does not accept is
+ * `GET /board/{boardId}/task/all` scopes by board in the path, pages and sorts —
+ * so board narrowing and `sortTasks` are gone from here entirely. What it still does not accept is
  * a status or a keyword, so **the filter and the search box narrow one page of
  * results, not the whole board.** That is a real limitation, not a rounding
  * error: on a board with 60 tasks, "Done" shows the done tasks *among the 20
@@ -15,7 +15,7 @@ import type { Task, TaskFilter, TaskSearch, TaskStats } from './schemas'
  * server's totals alongside the page range, and `TaskSummary` labels its counts
  * as page-scoped whenever there is more than one page.
  *
- * Delete this module the moment `TaskController` accepts `?status=` and `?q=`;
+ * Delete this module the moment the list endpoint accepts `?status=` and `?q=`;
  * everything in it becomes a query parameter and the counts become honest.
  */
 

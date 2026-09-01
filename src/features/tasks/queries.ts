@@ -83,10 +83,20 @@ function invalidateTasks(client: QueryClient) {
   return client.invalidateQueries({ queryKey: taskKeys.all })
 }
 
-export function useCreateTask() {
+/**
+ * Every mutation takes the board it operates in, because the endpoints are
+ * nested under `/board/{boardId}/task`. It is a hook argument rather than a
+ * mutate variable for the same reason `useTaskList` takes one: the board is
+ * route context, fixed for the lifetime of the screen, not a per-call choice.
+ *
+ * Deriving it from `task.boardId` instead would work today but reads the board
+ * off a nullable response field, and a null there would build `/board//task/…`
+ * — a 404 with no clue where it came from.
+ */
+export function useCreateTask(boardId: string) {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (values: TaskFormValues) => tasksApi.create(values),
+    mutationFn: (values: TaskFormValues) => tasksApi.create(boardId, values),
     onSuccess: (task) => {
       void invalidateTasks(client)
       toast.success('Task created', { description: task.title })
@@ -95,11 +105,11 @@ export function useCreateTask() {
   })
 }
 
-export function useUpdateTask() {
+export function useUpdateTask(boardId: string) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: ({ id, values }: { id: string; values: TaskFormValues }) =>
-      tasksApi.update(id, values),
+      tasksApi.update(boardId, id, values),
     onSuccess: (task) => {
       void invalidateTasks(client)
       toast.success('Task updated', { description: task.title })
@@ -118,13 +128,13 @@ export function useUpdateTask() {
  * `keepPreviousData`), and the row being toggled is only in one of them — but
  * which one is not worth deriving when a prefix match covers it.
  */
-export function useUpdateTaskStatus() {
+export function useUpdateTaskStatus(boardId: string) {
   const client = useQueryClient()
   const listFilter = { queryKey: taskKeys.lists() }
 
   return useMutation({
     mutationFn: ({ task, status }: { task: Task; status: TaskStatus }) =>
-      tasksApi.update(task.id, { ...taskToFormValues(task), status }),
+      tasksApi.update(boardId, task.id, { ...taskToFormValues(task), status }),
     onMutate: async ({ task, status }) => {
       await client.cancelQueries(listFilter)
       const snapshot = client.getQueriesData<PagedTasks>(listFilter)
@@ -152,10 +162,10 @@ export function useUpdateTaskStatus() {
   })
 }
 
-export function useDeleteTask() {
+export function useDeleteTask(boardId: string) {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: ({ id }: { id: string; title: string }) => tasksApi.remove(id),
+    mutationFn: ({ id }: { id: string; title: string }) => tasksApi.remove(boardId, id),
     onSuccess: (_data, { title }) => {
       void invalidateTasks(client)
       toast.success('Task deleted', { description: title })

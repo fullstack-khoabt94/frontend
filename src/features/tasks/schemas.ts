@@ -89,8 +89,14 @@ export const taskFormSchema = z.object({
    * dialog fills it from the route and hides the field. The picker is only for a
    * screen that has no board in context, and there is none today.
    *
-   * **It is create-only.** `UpdateTaskDto` has no `boardId`, so the picker is
-   * disabled when editing — a task cannot change board.
+   * **This never reaches the wire.** Both task DTOs dropped `boardId` when the
+   * routes nested under `/board/{boardId}/task`, so the board is now the path
+   * `tasksApi` builds from the route — the field stays in the form only to drive
+   * the picker's display.
+   *
+   * **It is still create-only.** `updateTask` reads the path board to authorise
+   * the call and never reassigns `task.board`, so the picker is disabled when
+   * editing — a task cannot change board.
    */
   boardId: z.string().min(1, 'Pick a board'),
   title: z
@@ -129,8 +135,8 @@ export function taskToFormValues(task: Task): TaskFormValues {
 /**
  * The five list views the product requires.
  *
- * These stay **client-side**: `/task/all` accepts `boardId`, `page`, `size` and
- * `sort`, and nothing else — there is no `?status=` and no `?q=`. So the filter
+ * These stay **client-side**: `/board/{boardId}/task/all` accepts `page`, `size`
+ * and `sort`, and nothing else — there is no `?status=` and no `?q=`. So the filter
  * and the search box narrow the page the server sent, not the whole board. See
  * `features/tasks/list.ts` for what that costs and `TaskPagination` for how the
  * UI says so.

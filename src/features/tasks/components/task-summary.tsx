@@ -14,7 +14,7 @@ type Props = {
   stats?: TaskStats
   isLoading?: boolean
   /**
-   * True when the board spans more than one page. `/task/all` returns no
+   * True when the board spans more than one page. The list endpoint returns no
    * aggregates — only `total` — so these four numbers are counted from the rows
    * on screen and describe the page, not the board. Saying so is cheaper than
    * having someone trust "3 done" on a board of sixty.

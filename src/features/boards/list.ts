@@ -36,7 +36,7 @@ export function buildBoardView(boards: Board[], search: BoardSearch) {
  * compute them.
  *
  * The grid used to derive "3 of 8 done" from one cross-board `GET /task/all`.
- * That call now requires a `boardId` and returns one page, so the only ways to
+ * Tasks are nested under their board now and the call returns one page, so the only ways to
  * rebuild the counts would be a request per board (N+1 on the landing page) or
  * a request per board large enough to hold every task — which is the "fetch
  * everything" the pagination was added to stop.

@@ -33,7 +33,7 @@ export function AppHeader() {
           <Logo />
         </Link>
 
-        {/* One destination: `/task/all` requires a `boardId`, so there is no
+        {/* One destination: task lists are nested under a board, so there is no
             cross-board list to link to any more. `activeProps` comes from the
             router, so the highlight follows the URL rather than a duplicated
             piece of state. */}

@@ -54,7 +54,8 @@ function pageWindow(current: number, totalPages: number): (number | null)[] {
  * board's real totals.
  *
  * That matters because everything else in the toolbar is page-scoped: the
- * server takes `boardId`, `page`, `size` and `sort` but no status and no
+ * server takes the board in the path and `page`, `size` and `sort` as params —
+ * but no status and no
  * keyword, so the filter tabs and the search box narrow the rows already
  * fetched. `meta.total` is the one number that comes from the database.
  */

@@ -139,8 +139,8 @@ which now costs nothing at all: `V5__create_boards_table.sql` made `tasks.board_
 so a board-less task cannot exist. The `.catch(null)` and the "No board" chip stay as cheap
 guards, not as a case anyone will hit.
 
-That column is why the cross-board screen is gone. `GET /task/all` takes `boardId` as a
-**required** parameter, so no single request returns tasks from more than one board — and the
+That column is why the cross-board screen is gone. Every task route is nested under
+`/board/{boardId}`, so no single request returns tasks from more than one board — and the
 one reason `/tasks` was kept (somewhere for board-less tasks to appear) can no longer happen.
 
 `TaskFormDialog` still takes both props, and inside a board only the first is used:
@@ -169,8 +169,8 @@ two sources of truth.
 `TaskFilter = 'all' | 'not_done' | 'todo' | 'in_progress' | 'done'`
 
 These are **client-side, UI-only concepts** and stay lowercase so URLs read well — they
-are never sent to the backend. `GET /task/all` accepts `boardId`, `page`, `size` and `sort`,
-and nothing else: no `?status=`, no `?q=`.
+are never sent to the backend. `GET /board/{boardId}/task/all` accepts `page`, `size` and
+`sort`, and nothing else: no `?status=`, no `?q=`.
 
 **So the filter and the search box narrow one page of results, not the whole board**, and the
 tab counts describe that same page. On a board of 60 tasks at 20 per page, "Done" shows the
@@ -312,7 +312,7 @@ to `light`.
 **Boards are the entry point.** `/`, login and the `_auth` guard all land on `/boards`,
 because a task lives inside a board and the grid is where you pick one.
 
-**`/tasks` is a redirect now, not a screen.** `GET /task/all` requires a `boardId`, so no
+**`/tasks` is a redirect now, not a screen.** Task routes are nested under a board, so no
 request returns tasks from more than one board, and a cross-board page could only be
 assembled from one call per board — which is exactly the "load everything" the pagination
 exists to stop. The route file stays so old links land on `/boards` instead of a 404, and it
@@ -487,18 +487,30 @@ Two limits the form enforces on the backend's behalf:
 active/archived split is a client-side view, like the task filters.
 
 **`BoardResponse` carries no task counts, and they can no longer be derived.** The grid used
-to compute "3 of 8 done" per board from one cross-board `GET /task/all`. That call is now
-board-scoped and paginated, so rebuilding the counts would take either a request per board
+to compute "3 of 8 done" per board from one cross-board `GET /task/all`. Tasks are nested
+under their board and paginated now, so rebuilding the counts would take either a request per board
 on the landing page or a request per board big enough to hold every task. The card dropped
 its progress bar instead of showing a number that is quietly wrong — `buildProgressByBoard`
 and `BoardProgress` are gone with it. Adding `taskCount` and `doneCount` to `BoardResponse`
 (two `COUNT(*)`s on a table already filtered by board) brings the bar straight back.
 
-### Every task list is board-scoped
+### Tasks are a nested resource, and that is what enforces ownership
 
-`/board/{id}/task` does not exist, but `GET /task/all` now takes **`boardId` as a required
-parameter**, which serves the same purpose. So the scoping moved out of the browser and into
-the request, and `buildListView(tasks, search, boardId)` became `buildPageView(page, search)`.
+**Every task route is `/board/{boardId}/task/…`.** The board is a path segment on all five
+calls — not a query parameter, not a body field — so the scoping moved out of the browser and
+into the URL, and `buildListView(tasks, search, boardId)` became `buildPageView(page, search)`.
+
+The nesting is a **security boundary, not a style choice**. `TaskServiceImpl.getValidTask`
+checks two things on every single-task call: the caller owns `{boardId}`, and `{taskId}`
+belongs to that same board. Both facts come from trusted input — the path and the JWT — so a
+task can only be reached through the board that holds it, and there is no un-scoped
+`/task/{id}` left to fall back to.
+
+That closed a real IDOR: the endpoints previously took no principal at all, and any signed-in
+user could read, edit or delete any task by UUID and create one into someone else's board.
+Two intermediate fixes did not close it — one added the parameter but never used it, the
+other authorised the **body's** `boardId`, which the attacker chooses. Only deriving the
+board from the path fixed it. Do not reintroduce a task route that does not carry a board.
 
 That also reversed the cache key. `taskKeys.list(params)` is keyed by `(boardId, page, size,
 sort)` — a single shared array could not survive a paginated endpoint, since two pages of one
@@ -509,25 +521,30 @@ invalidate and the optimistic toggle writes through.
 owner through `task.board.user`. Nothing on the client needed it, so nothing replaced it. It
 **gained `createdAt` and `updatedAt`**, which is what made ordering by age possible.
 
-**`UpdateTaskDto` has no `boardId`** and `updateTask` never touches `task.board`, so a task
-cannot change board. `tasksApi.update` deliberately does not send the field, and the picker in
-`TaskFormDialog` is `disabled` when editing — shown, so the row still says which board the
-task is in, but not editable.
+**Neither task DTO carries `boardId` any more** — both dropped the field when the routes
+nested. A task still cannot change board: `updateTask` reads the path board only to authorise
+the call and never reassigns `task.board`, so any board other than the task's own fails the
+ownership check with a `404` rather than moving it. The picker in `TaskFormDialog` stays
+`disabled` when editing — shown, so the row still says which board the task is in.
 
-### Tasks — paginated, and the frontend matches it
+### Tasks — nested and paginated, and the frontend matches it
 
-| Method   | Path                               | Request                                                      | Response                  |
-| -------- | ---------------------------------- | ------------------------------------------------------------ | ------------------------- |
-| `GET`    | `/task/all?boardId&page&size&sort` | —                                                            | `200 PagedResponse<Task>` |
-| `GET`    | `/task/{id}`                       | —                                                            | `200 Task`                |
-| `POST`   | `/task`                            | `{ boardId, title, description, status, priority, dueDate }` | `201 Task`                |
-| `PUT`    | `/task/{id}`                       | same, without `boardId`                                      | `200 Task`                |
-| `DELETE` | `/task/{id}`                       | —                                                            | `200` + `"Done"`          |
+| Method   | Path                                       | Request                                             | Response                  |
+| -------- | ------------------------------------------ | --------------------------------------------------- | ------------------------- |
+| `GET`    | `/board/{boardId}/task/all?page&size&sort` | —                                                   | `200 PagedResponse<Task>` |
+| `GET`    | `/board/{boardId}/task/{taskId}`           | —                                                   | `200 Task`                |
+| `POST`   | `/board/{boardId}/task`                    | `{ title, description, status, priority, dueDate }` | `201 Task`                |
+| `PUT`    | `/board/{boardId}/task/{taskId}`           | same                                                | `200 Task`                |
+| `DELETE` | `/board/{boardId}/task/{taskId}`           | —                                                   | `200` + `"Done"`          |
 
 `PagedResponse<T>` is `{ data: T[], page, size, total, totalPages }` — Spring's `Page`
 flattened by `com.eazybytes.dtos.PagedResponse`. Notes that shape the client:
 
-- **`boardId` is required**, so there is no cross-board list. See above.
+- **The board is always in the path**, so there is no cross-board list. See above.
+- **`DELETE` ignores its `{boardId}`.** `deleteTask` still runs the older inline check
+  (task → board → user) rather than `getValidTask`, so the segment is required by the route
+  and unused by the handler. Correct, but the odd one out — the client sends the real board
+  anyway so nothing breaks if it is ever wired up.
 - **`page` is zero-based on the wire**, because it is `Page#getNumber()`. The URL and every
   component work in one-based pages; `tasksApi.list` is the only place that converts, in
   both directions.
@@ -546,14 +563,17 @@ flattened by `com.eazybytes.dtos.PagedResponse`. Notes that shape the client:
   50 and validates the search param against that list.
 - **Default page size is 20**, matching `@PageableDefault(size = 20)`, and the default sort
   is `createdAt,desc` on both sides.
-- **Path is `/task`, singular**, and the collection is `/task/all`.
+- **Path is `/task`, singular**, nested under `/board/{boardId}`, and the collection is
+  `/board/{boardId}/task/all`.
 - **Update is `PUT`, not `PATCH`**, and `UpdateTaskDto` requires every field — partial
   updates are not possible.
 - **There is no status-only endpoint.** Toggling a task sends a full `PUT` rebuilt from
   the task already in the cache (`useUpdateTaskStatus`), which writes optimistically across
   every cached page rather than one key.
-- **`boardId` is sent on create only**, from the form. `CreateTaskDto` marks it `@NotNull`;
-  `UpdateTaskDto` has no such field.
+- **`boardId` never reaches the body.** It stays in `taskFormSchema` to drive the picker's
+  display, and `tasksApi` turns the route's board into the path instead. Every mutation hook
+  takes it as an argument (`useCreateTask(boardId)` and friends) rather than reading it off
+  the nullable `task.boardId`, which would build `/board//task/…` on a null.
 - `DELETE` answers `200` with a plain-text body; the client ignores both.
 
 ### Auth — signup and login are live
@@ -815,8 +835,8 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
   `@Future` on update as well as create, so any `PUT` carrying a past deadline is
   rejected — including a plain status toggle. Removing `@Future` from `UpdateTaskDto` (or
   dropping it entirely) is the fix; the client cannot work around it.
-- **The status filter and the search box are page-scoped.** `/task/all` accepts `boardId`,
-  `page`, `size` and `sort` and nothing else, so both narrow the rows already fetched rather
+- **The status filter and the search box are page-scoped.** `/board/{boardId}/task/all`
+  accepts `page`, `size` and `sort` and nothing else, so both narrow the rows already fetched rather
   than the board. The summary caption and the pagination totals say so out loud. `?status=`
   and `?q=` on the backend delete `features/tasks/list.ts` outright.
 - **Two sort options are missing because the backend cannot serve them.** `title` is not in
@@ -827,23 +847,19 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
 - **Sorting by "Due latest" opens with undated tasks.** Postgres puts NULLs first on a
   descending sort, and neither the repository query nor `Sorts.sanitize` sets a `NULLS`
   clause. Backend fix; the client cannot reorder a page it only partly holds.
-- **`GET /task/all` does not start today.** `TaskRepository.findTasksByBoardOrderBy` is not a
-  parseable derived-query name — Spring Data only splits the `OrderBy` keyword when an
-  uppercase letter follows it, so the trailing `OrderBy` is read as a property and resolves
-  to `board.orderBy`, which does not exist. It throws `PropertyReferenceException` while the
-  repository bean is being created, so the **whole application fails to boot**; it compiles
-  cleanly, which is why a build does not catch it. Renaming the method to `findByBoard` fixes
-  it. Every screen in this app is blocked behind that one line.
 - **Boards can be archived but never restored or deleted.** `DELETE` soft-deletes and nothing
   reverses it, so the UI exposes neither action. Restore needs `isArchived` on
   `UpdateBoardDto`; a real delete needs a second endpoint plus `ON DELETE CASCADE` on
   `tasks.board_id`, currently `NO ACTION`.
-- **A task cannot be moved between boards.** `UpdateTaskDto` has no `boardId`. The picker is
-  already built and merely `disabled` when editing.
-- **There is no cross-board task list.** `boardId` is required on `/task/all`, so `/tasks`
-  is a redirect to `/boards` and a task can only be seen inside its board. Making `boardId`
-  optional — falling back to the principal's boards — restores the screen; the route file
-  says what to rebuild.
+- **A task cannot be moved between boards.** `updateTask` reads its `{boardId}` only to
+  authorise the call and never reassigns `task.board`, so passing a different board is a
+  `404`, not a move. Moving needs the handler to validate the destination board and assign
+  it; the picker is already built and merely `disabled` when editing.
+- **There is no cross-board task list.** Every task route is nested under a board, so `/tasks`
+  is a redirect to `/boards` and a task can only be seen inside its board. Restoring the
+  screen needs a genuinely new top-level endpoint scoped to the principal's boards — the
+  nested route derives its authorisation from `{boardId}` and has no board-less shape. The
+  route file says what to rebuild.
 - **Board cards show no task counts.** `BoardResponse` carries none, and the paginated,
   board-scoped task endpoint cannot supply them without a request per board. The progress bar
   was removed rather than left showing a wrong number. `taskCount` / `doneCount` on
@@ -857,12 +873,11 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
 - **Archiving a board does not archive its tasks.** They stay live and stay reachable by
   opening the archived board. That is intended — archiving is about tidying the grid, not
   hiding work.
-- **Nothing scopes tasks to the caller.** `GET /task/all`, `POST /task`, `GET /task/{id}` and
-  `PUT /task/{id}` have no `@AuthenticationPrincipal` and no ownership guard, so any signed-in
-  user can list, read or edit any task by UUID and create one into someone else's board.
-  `TaskServiceImpl` has its own `getValidBoard(boardId)` that skips the check
-  `BoardServiceImpl.getValidBoard(ownerId, boardId)` performs. The list endpoint is the worst
-  of them: one guessed `boardId` returns a whole board, paginated.
+- **Ownership errors do not speak with one voice.** `TaskServiceImpl` answers "not yours"
+  with `NotFoundException` (`404`, which also avoids confirming the row exists), while
+  `BoardServiceImpl.getValidBoard` and `deleteTask` still throw `BadRequestException`
+  (`400`). So the same condition reaches the client as two different statuses. `getApiErrorMessage`
+  renders either, so nothing is broken — but no screen can branch on the status yet.
 - **The refresh deadline crosses the wire without a timezone.** `LoginResponse` types it as
   `LocalDateTime`, so a browser in a different zone from the server reads it hours off. This
   is a **deliberate call, not an oversight**: the client absorbs it (section 2), the effect is

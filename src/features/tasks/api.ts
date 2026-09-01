@@ -31,10 +31,20 @@ function toPayload(values: TaskFormValues) {
 }
 
 /**
- * Everything `GET /task/all` accepts. `boardId` is **required** by the
- * controller (`@RequestParam(required = true)`), which is why there is no
- * cross-board variant of this call and no default for it here.
+ * Tasks are a **nested resource**: every route is `/board/{boardId}/task/…`, so
+ * the board is a path segment on all five calls rather than a query parameter
+ * or a body field.
+ *
+ * That is what enforces ownership. `TaskServiceImpl.getValidTask` checks two
+ * things — the caller owns `{boardId}`, and `{taskId}` belongs to that same
+ * board — so a task can only be reached through the board that holds it. There
+ * is no un-scoped `/task/{id}` to fall back to.
  */
+function taskPath(boardId: string, taskId?: string) {
+  return taskId ? `/board/${boardId}/task/${taskId}` : `/board/${boardId}/task`
+}
+
+/** Everything the list endpoint accepts. `boardId` is the path, not a param. */
 export type TaskListParams = {
   boardId: string
   /** One-based, as it appears in the URL. Converted for Spring below. */
@@ -53,20 +63,24 @@ export const tasksApi = {
    * understands.
    */
   async list({ boardId, page, size, sort }: TaskListParams): Promise<PagedTasks> {
-    const { data } = await api.get('/task/all', {
-      params: { boardId, page: page - 1, size, sort: TASK_SORT_PARAM[sort] },
+    const { data } = await api.get(`${taskPath(boardId)}/all`, {
+      params: { page: page - 1, size, sort: TASK_SORT_PARAM[sort] },
     })
     return pagedTaskListSchema.parse(data)
   },
 
-  async getById(id: string): Promise<Task> {
-    const { data } = await api.get(`/task/${id}`)
+  async getById(boardId: string, id: string): Promise<Task> {
+    const { data } = await api.get(taskPath(boardId, id))
     return taskSchema.parse(data)
   },
 
-  /** `CreateTaskDto` is the only one of the two that carries `boardId`. */
-  async create(values: TaskFormValues): Promise<Task> {
-    const { data } = await api.post('/task', { ...toPayload(values), boardId: values.boardId })
+  /**
+   * **`boardId` is not in the body.** `CreateTaskDto` dropped the field when the
+   * routes nested — the board comes off the path and is authorised there, so a
+   * body field would be a second, unchecked source of the same fact.
+   */
+  async create(boardId: string, values: TaskFormValues): Promise<Task> {
+    const { data } = await api.post(taskPath(boardId), toPayload(values))
     return taskSchema.parse(data)
   },
 
@@ -74,17 +88,17 @@ export const tasksApi = {
    * Full replace — the backend exposes PUT, and UpdateTaskDto requires every
    * field.
    *
-   * **`boardId` is deliberately not sent.** `UpdateTaskDto` has no such field
-   * and `TaskServiceImpl.updateTask` never touches `task.board`, so a task
-   * cannot change board. Sending it anyway would be ignored silently and would
-   * read like a working feature.
+   * A task still **cannot change board**: `updateTask` reads `{boardId}` only to
+   * authorise the call and never reassigns `task.board`, so the path board must
+   * be the one the task is already in — any other value fails the ownership
+   * check with a 404 rather than moving the task.
    */
-  async update(id: string, values: TaskFormValues): Promise<Task> {
-    const { data } = await api.put(`/task/${id}`, toPayload(values))
+  async update(boardId: string, id: string, values: TaskFormValues): Promise<Task> {
+    const { data } = await api.put(taskPath(boardId, id), toPayload(values))
     return taskSchema.parse(data)
   },
 
-  async remove(id: string): Promise<void> {
-    await api.delete(`/task/${id}`)
+  async remove(boardId: string, id: string): Promise<void> {
+    await api.delete(taskPath(boardId, id))
   },
 }

@@ -134,9 +134,10 @@ export function TaskFormDialog({
                   control={form.control}
                   name="boardId"
                   render={({ field }) => (
-                    // Disabled when editing: UpdateTaskDto has no boardId, so
-                    // the change could not be saved. Shown rather than hidden
-                    // so the row still says which board the task is in.
+                    // Disabled when editing: the path board only authorises the
+                    // call, `updateTask` never reassigns `task.board`, so the
+                    // change could not be saved. Shown rather than hidden so the
+                    // row still says which board the task is in.
                     <Select value={field.value} onValueChange={field.onChange} disabled={isEdit}>
                       <SelectTrigger
                         id="task-board"

@@ -76,10 +76,10 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
   const archiveBoard = useArchiveBoard()
 
   const list = useTaskList(search, boardId)
-  const createTask = useCreateTask()
-  const updateTask = useUpdateTask()
-  const updateStatus = useUpdateTaskStatus()
-  const deleteTask = useDeleteTask()
+  const createTask = useCreateTask(boardId)
+  const updateTask = useUpdateTask(boardId)
+  const updateStatus = useUpdateTaskStatus(boardId)
+  const deleteTask = useDeleteTask(boardId)
 
   const { tasks, stats, pageMeta } = list
   const isInitialLoading = list.isPending
