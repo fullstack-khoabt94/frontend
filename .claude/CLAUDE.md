@@ -550,9 +550,13 @@ flattened by `com.eazybytes.dtos.PagedResponse`. Notes that shape the client:
   both directions.
 - **`sort` is Spring's `property,direction`**, and only three properties are accepted:
   `TaskServiceImpl.ALLOWED_SORT` is `{createdAt, dueDate, priority}`. `Sorts.sanitize`
-  **silently drops** anything else and falls back to `id DESC`, so an unsupported option
-  would not error — it would quietly return the wrong order. That is why `TASK_SORTS` lost
-  two entries:
+  **silently drops** anything else, so an unsupported option would not error — it would
+  quietly return the wrong order. Worse, it does **not** fall back to `id DESC`: the tie
+  breaker is only appended when at least one requested property survived, so a request
+  sorted _only_ by a rejected property comes back **unsorted**, and an unsorted paginated
+  query can repeat or skip rows between pages. (Pinned by
+  `TaskServiceImplTest.getTasks_shouldReturnUnsortedWhenEverySortIsRejected`.) That is why
+  `TASK_SORTS` lost two entries:
   - **`title_asc`** — `title` is not in `ALLOWED_SORT`.
   - **`priority_desc`** — it _is_ in `ALLOWED_SORT`, but `Task.priority` is
     `@Enumerated(STRING)`, so the database orders it alphabetically (`HIGH, LOW, MEDIUM`),
