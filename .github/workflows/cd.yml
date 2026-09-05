@@ -1,4 +1,5 @@
 name: Deploy
+
 on:
   push: { branches: [main] }
 
@@ -21,23 +22,38 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ap-southeast-1
 
-      - uses: aws-actions/amazon-ecr-login@v2
-        id: ecr
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - uses: docker/setup-buildx-action@v3
-
-      - id: push
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          IMG=${{ steps.ecr.outputs.registry }}/tasklog-frontend:${{ github.sha }}
-          docker buildx build --platform linux/arm64 -t $IMG --push .
-          echo "image=$IMG" >> $GITHUB_OUTPUT
+          # Build a docker container and
+          # push it to ECR so that it can
+          # be deployed to ECS.
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-      - uses: aws-actions/amazon-ecs-render-task-definition@v1
-        id: td
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: ${{ steps.td.outputs.task-definition }}
-          cluster: ${{ vars.ECS_CLUSTER }}
+          task-definition: ${{ vars.ECS_TASK_DEFINITION }}
+          container-name: ${{ vars.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
           service: ${{ vars.ECS_SERVICE }}
+          cluster: ${{ vars.ECS_CLUSTER }}
           wait-for-service-stability: true
 
-      - run: curl -f https://app.khoatienbui94.click/login
+      - name: Smoke test
+        run: curl -fsS "${{ vars.APP_DOMAIN }}/healhz"
