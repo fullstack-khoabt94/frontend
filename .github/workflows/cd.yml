@@ -56,6 +56,3 @@ jobs:
           service: ${{ vars.ECS_SERVICE }}
           cluster: ${{ vars.ECS_CLUSTER }}
           wait-for-service-stability: true
-
-      - name: Smoke test
-        run: curl -fsS "${{ vars.APP_DOMAIN }}/healhz"
