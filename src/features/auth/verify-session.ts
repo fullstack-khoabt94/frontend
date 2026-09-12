@@ -34,8 +34,9 @@ async function verify() {
     sessionStore.markVerified()
   } catch {
     // No verdict is reached here on purpose. The interceptor is the single place
-    // that decides what a 401 means, and it has already refreshed, retried, and
-    // cleared the session if the tokens are genuinely spent. Reading the status
+    // that decides what a rejected identity call means, and it has already
+    // refreshed, retried, and cleared the session on any 4xx the token could not
+    // survive — 401 included, once the refresh failed. Reading the status
     // again here would get it wrong in one real case: when the original request
     // 401s and the *refresh* then fails on the network, the error that surfaces
     // is still that 401 — so this would sign out a visitor whose session the
