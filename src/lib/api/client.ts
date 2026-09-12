@@ -47,6 +47,19 @@ const PUBLIC_PATHS = [
   '/auth/reset-password',
 ]
 
+/**
+ * The identity endpoint, and the one path where **any** 4xx ends the session.
+ *
+ * Everywhere else a non-401 client error is about the request — a bad payload, a
+ * row that is not yours, a stale id — and says nothing about the token. Here
+ * there is no request to get wrong: the call carries no body and no id, and the
+ * backend reads the subject straight off the JWT. So any refusal at all is a
+ * refusal of the token itself (`403` from a disabled or role-stripped account,
+ * `404` once the row is gone, `400` on a principal it cannot resolve), and a
+ * session whose own identity cannot be fetched has nothing left to authorise.
+ */
+const IDENTITY_PATH = '/user/me'
+
 function redirectToLogin() {
   if (typeof window === 'undefined') return
   if (window.location.pathname.startsWith('/login')) return
@@ -57,19 +70,30 @@ function redirectToLogin() {
  * A 401 means the access token is gone or expired. Rather than ending the
  * session on the spot, spend the refresh token on a new one and replay the
  * request — the visitor never sees the 1h access-token boundary.
+ *
+ * On {@link IDENTITY_PATH} the net is wider: every 4xx ends the session, not
+ * just 401. A 401 there still earns its refresh and replay first — an expired
+ * access token is the ordinary case at boot — and only the answer that survives
+ * that signs the visitor out.
  */
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const config = error.config
     const url = config?.url ?? ''
+    const status = error.response?.status ?? 0
     const isPublic = PUBLIC_PATHS.some((path) => url.startsWith(path))
-    if (error.response?.status !== 401 || isPublic || !config) return Promise.reject(error)
+    if (isPublic || !config) return Promise.reject(error)
+
+    const isClientError = status >= 400 && status < 500
+    const endsSession = status === 401 || (isClientError && url.startsWith(IDENTITY_PATH))
+    if (!endsSession) return Promise.reject(error)
 
     // Only the first 401 per request earns a refresh: a second one, already
     // carrying a token minted seconds ago, is a real refusal and replaying it
-    // again would loop.
-    if (!config.retriedAfterRefresh && sessionStore.getState().refreshToken) {
+    // again would loop. A non-401 needs no refresh — the token was accepted and
+    // the answer would not change with a newer one.
+    if (status === 401 && !config.retriedAfterRefresh && sessionStore.getState().refreshToken) {
       const outcome = await refreshAccessToken()
       if (outcome.status === 'refreshed') {
         config.retriedAfterRefresh = true

@@ -269,6 +269,18 @@ the **root** route's `beforeLoad` — ahead of the guards on `/`, `/_auth` and `
 protected page renders on a token the API would reject. It runs at most once per page load
 and returns `undefined` (not a resolved promise) once there is nothing to check.
 
+**On `GET /user/me`, _any_ 4xx ends the session — not just `401`.** It is the one path where
+that is sound. Everywhere else a non-401 client error is about the request (a bad payload, a
+row that is not yours, a stale id) and says nothing about the token; the identity call
+carries no body and no id, and the backend reads the subject off the JWT, so there is no
+request left to get wrong. A `403` (disabled or role-stripped account), a `404` (the row is
+gone) or a `400` (a principal it cannot resolve) are all the same fact: this token no longer
+identifies anyone, and a session whose own identity cannot be fetched has nothing left to
+authorise. `IDENTITY_PATH` in `lib/api/client.ts` is the single place that widening lives.
+A `401` there is still handled as a `401` first — one refresh, one replay — so an expired
+access token at boot is renewed rather than ending the session, and only the answer that
+survives that signs the visitor out.
+
 **The response interceptor is the single place that decides what a `401` means.** Nothing
 else may re-derive that verdict from a status code — `verify-session.ts` in particular
 catches its failure and draws no conclusion at all. The reason is a real case that reading
@@ -655,7 +667,8 @@ mapped yet, so those still come back in Spring's default shape.
 
 Auth is `Authorization: Bearer <accessToken>`, attached by a request interceptor. A `401`
 on any non-auth endpoint clears the session and redirects to `/login` — `SecurityConfig`'s
-entry point answers those with `{ "message": "Unauthorized" }`.
+entry point answers those with `{ "message": "Unauthorized" }`. On `GET /user/me` the rule is
+wider — every 4xx clears the session, for the reasons in section 2.
 
 A caller that treats a `401` as a normal answer opts out with
 `api.get(url, { skipAuthRedirect: true })` and handles it itself. The session check is the
