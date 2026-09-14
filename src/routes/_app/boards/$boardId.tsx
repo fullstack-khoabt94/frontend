@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react'
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, notFound, useNavigate } from '@tanstack/react-router'
+import axios from 'axios'
 import { Archive, ChevronLeft, Pencil, Plus } from 'lucide-react'
+import { z } from 'zod'
 import { Button } from '@/components/ui/button'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { ArchiveBoardDialog } from '@/features/boards/components/archive-board-dialog'
 import { BoardFormDialog } from '@/features/boards/components/board-form-dialog'
+import { BoardNotFound } from '@/features/boards/components/board-not-found'
 import { BOARD_COLOR_META } from '@/features/boards/constants'
-import { useArchiveBoard, useBoard, useUpdateBoard } from '@/features/boards/queries'
+import {
+  boardDetailQuery,
+  useArchiveBoard,
+  useBoard,
+  useUpdateBoard,
+} from '@/features/boards/queries'
 import { DEFAULT_BOARD_ICON, type BoardFormValues } from '@/features/boards/schemas'
 import { DeleteTaskDialog } from '@/features/tasks/components/delete-task-dialog'
 import { TaskEmptyState } from '@/features/tasks/components/task-empty-state'
@@ -35,6 +43,23 @@ export const Route = createFileRoute('/_app/boards/$boardId')({
   // Filter, search, sort *and* the page live in the URL, so any page of any
   // board is linkable and survives a refresh.
   validateSearch: taskSearchSchema,
+  /**
+   * Resolve the board before the page mounts, so a bad id lands on
+   * `BoardNotFound` instead of a header skeleton next to a task list for a board
+   * that is not there. A malformed id never reaches the API — Spring would turn
+   * it into a 400, not a 404. Any other failure (network, 5xx) still goes to the
+   * error boundary.
+   */
+  loader: async ({ context, params }) => {
+    if (!z.uuid().safeParse(params.boardId).success) throw notFound()
+    try {
+      await context.queryClient.ensureQueryData(boardDetailQuery(params.boardId))
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) throw notFound()
+      throw error
+    }
+  },
+  notFoundComponent: BoardNotFound,
   component: BoardDetailRoute,
 })
 
@@ -147,22 +172,6 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
   const handleBoardSubmit = async (values: BoardFormValues) => {
     await updateBoard.mutateAsync({ id: boardId, values })
     setBoardFormOpen(false)
-  }
-
-  if (board.isError) {
-    return (
-      <main className="mx-auto w-full max-w-5xl px-4 py-16 text-center sm:px-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Board not found</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          It may have been deleted, or the link is wrong.
-        </p>
-        <Button asChild size="lg" className="mt-6">
-          <Link to="/boards" search={{ view: 'active', q: '' }}>
-            Back to boards
-          </Link>
-        </Button>
-      </main>
-    )
   }
 
   const data = board.data
