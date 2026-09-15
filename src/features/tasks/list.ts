@@ -1,3 +1,4 @@
+import { htmlToPlainText } from '@/lib/rich-text'
 import type { Task, TaskFilter, TaskSearch, TaskStats } from './schemas'
 
 /**
@@ -41,7 +42,7 @@ function matchesSearch(task: Task, q: string) {
   const needle = q.toLowerCase()
   return (
     task.title.toLowerCase().includes(needle) ||
-    (task.description ?? '').toLowerCase().includes(needle)
+    htmlToPlainText(task.description).toLowerCase().includes(needle)
   )
 }
 

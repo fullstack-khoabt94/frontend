@@ -7,6 +7,7 @@ import {
   RotateCcw,
   Trash2,
 } from 'lucide-react'
+import { RichTextView } from '@/components/rich-text-view'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -81,9 +82,10 @@ export function TaskItem({ task, onEdit, onDelete, onStatusChange, isMutating, b
             {task.title}
           </p>
           {task.description && (
-            <p className="line-clamp-2 text-sm text-muted-foreground wrap-anywhere">
-              {task.description}
-            </p>
+            <RichTextView
+              html={task.description}
+              className="rich-text-compact line-clamp-3 text-sm text-muted-foreground wrap-anywhere"
+            />
           )}
         </div>
 
