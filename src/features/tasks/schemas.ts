@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { htmlToPlainText } from '@/lib/rich-text'
 
 /**
  * Enum casing mirrors the Java enums exactly (`TaskStatus`, `TaskPriority`).
@@ -105,11 +106,15 @@ export const taskFormSchema = z.object({
     .min(1, 'Title is required')
     .max(120, 'Keep the title under 120 characters'),
   // Required: the backend marks description @NotBlank on both create and update.
+  // The value is HTML from the rich text editor, so limits apply to the visible
+  // text — `<p></p>` is not a description, and tags do not count as characters.
   description: z
     .string()
-    .trim()
-    .min(1, 'Description is required')
-    .max(1000, 'Keep the description under 1000 characters'),
+    .refine((html) => htmlToPlainText(html).length > 0, 'Description is required')
+    .refine(
+      (html) => htmlToPlainText(html).length <= 1000,
+      'Keep the description under 1000 characters',
+    ),
   status: taskStatusSchema.default('TODO'),
   priority: taskPrioritySchema.default('MEDIUM'),
   dueDate: z

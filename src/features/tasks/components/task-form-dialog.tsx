@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2 } from 'lucide-react'
+import { RichTextEditor } from '@/components/rich-text-editor'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -20,7 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
 import type { Board } from '@/features/boards/schemas'
 import { PRIORITY_META, STATUS_META } from '../constants'
 import {
@@ -113,7 +113,7 @@ export function TaskFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Rows: header stays pinned, the fields scroll, the footer stays reachable
           even on short viewports (small phones, any phone in landscape). */}
-      <DialogContent className="grid max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)] sm:max-w-lg">
+      <DialogContent className="grid max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)] sm:max-w-[75vw]">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit task' : 'New task'}</DialogTitle>
           <DialogDescription>
@@ -126,128 +126,146 @@ export function TaskFormDialog({
           noValidate
           className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-6"
         >
-          <FieldGroup className="-mx-1 min-h-0 overflow-y-auto px-1">
-            {!lockedBoardId && (
-              <Field data-invalid={Boolean(form.formState.errors.boardId)}>
-                <FieldLabel htmlFor="task-board">Board</FieldLabel>
+          {/* Two columns from lg: the content being written on the left (3/4),
+              the metadata on the right (1/4). Below lg they stack in that order.
+              The whole body scrolls as one so the footer stays pinned. */}
+          <div className="-mx-1 grid min-h-0 gap-6 overflow-y-auto px-1 lg:grid-cols-[3fr_1fr]">
+            <FieldGroup>
+              <Field data-invalid={Boolean(form.formState.errors.title)}>
+                <FieldLabel htmlFor="task-title">Title</FieldLabel>
+                <Input
+                  id="task-title"
+                  placeholder="e.g. Review the design handoff"
+                  autoFocus
+                  aria-invalid={Boolean(form.formState.errors.title)}
+                  {...form.register('title')}
+                />
+                <FieldError errors={[form.formState.errors.title]} />
+              </Field>
+
+              <Field data-invalid={Boolean(form.formState.errors.description)}>
+                <FieldLabel htmlFor="task-description">Description</FieldLabel>
                 <Controller
                   control={form.control}
-                  name="boardId"
+                  name="description"
                   render={({ field }) => (
-                    // Disabled when editing: the path board only authorises the
-                    // call, `updateTask` never reassigns `task.board`, so the
-                    // change could not be saved. Shown rather than hidden so the
-                    // row still says which board the task is in.
-                    <Select value={field.value} onValueChange={field.onChange} disabled={isEdit}>
-                      <SelectTrigger
-                        id="task-board"
-                        className="w-full"
-                        aria-invalid={Boolean(form.formState.errors.boardId)}
-                      >
-                        <SelectValue placeholder="Choose a board" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {options.map((board) => (
-                          <SelectItem key={board.id} value={board.id}>
-                            <span className="mr-1">{board.icon ?? '📋'}</span>
-                            {board.title}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <RichTextEditor
+                      id="task-description"
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      className="[&_.tiptap]:min-h-40 lg:[&_.tiptap]:min-h-72"
+                      placeholder="Add any detail that helps you pick this up later."
+                      invalid={Boolean(form.formState.errors.description)}
+                    />
                   )}
+                />
+                <FieldError errors={[form.formState.errors.description]} />
+              </Field>
+            </FieldGroup>
+
+            <FieldGroup className="lg:border-l lg:pl-6">
+              {!lockedBoardId && (
+                <Field data-invalid={Boolean(form.formState.errors.boardId)}>
+                  <FieldLabel htmlFor="task-board">Board</FieldLabel>
+                  <Controller
+                    control={form.control}
+                    name="boardId"
+                    render={({ field }) => (
+                      // Disabled when editing: the path board only authorises the
+                      // call, `updateTask` never reassigns `task.board`, so the
+                      // change could not be saved. Shown rather than hidden so the
+                      // row still says which board the task is in.
+                      <Select value={field.value} onValueChange={field.onChange} disabled={isEdit}>
+                        <SelectTrigger
+                          id="task-board"
+                          className="w-full"
+                          aria-invalid={Boolean(form.formState.errors.boardId)}
+                        >
+                          <SelectValue placeholder="Choose a board" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {options.map((board) => (
+                            <SelectItem key={board.id} value={board.id}>
+                              <span className="mr-1">{board.icon ?? '📋'}</span>
+                              {board.title}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  <FieldDescription>
+                    {isEdit
+                      ? 'A task cannot be moved between boards.'
+                      : 'Where this task will live.'}
+                  </FieldDescription>
+                  <FieldError errors={[form.formState.errors.boardId]} />
+                </Field>
+              )}
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+                <Field>
+                  <FieldLabel htmlFor="task-status">Status</FieldLabel>
+                  <Controller
+                    control={form.control}
+                    name="status"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger id="task-status" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TASK_STATUSES.map((status) => (
+                            <SelectItem key={status} value={status}>
+                              {STATUS_META[status].label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </Field>
+
+                <Field>
+                  <FieldLabel htmlFor="task-priority">Priority</FieldLabel>
+                  <Controller
+                    control={form.control}
+                    name="priority"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger id="task-priority" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TASK_PRIORITIES.map((priority) => (
+                            <SelectItem key={priority} value={priority}>
+                              {PRIORITY_META[priority].label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </Field>
+              </div>
+
+              <Field data-invalid={Boolean(form.formState.errors.dueDate)}>
+                <FieldLabel htmlFor="task-due">Due date</FieldLabel>
+                <Input
+                  id="task-due"
+                  type="date"
+                  min={earliestDueDate()}
+                  aria-invalid={Boolean(form.formState.errors.dueDate)}
+                  {...form.register('dueDate')}
                 />
                 <FieldDescription>
-                  {isEdit ? 'A task cannot be moved between boards.' : 'Where this task will live.'}
+                  Optional — leave empty for no deadline. Must be a future date.
                 </FieldDescription>
-                <FieldError errors={[form.formState.errors.boardId]} />
+                <FieldError errors={[form.formState.errors.dueDate]} />
               </Field>
-            )}
-
-            <Field data-invalid={Boolean(form.formState.errors.title)}>
-              <FieldLabel htmlFor="task-title">Title</FieldLabel>
-              <Input
-                id="task-title"
-                placeholder="e.g. Review the design handoff"
-                autoFocus
-                aria-invalid={Boolean(form.formState.errors.title)}
-                {...form.register('title')}
-              />
-              <FieldError errors={[form.formState.errors.title]} />
-            </Field>
-
-            <Field data-invalid={Boolean(form.formState.errors.description)}>
-              <FieldLabel htmlFor="task-description">Description</FieldLabel>
-              <Textarea
-                id="task-description"
-                rows={3}
-                placeholder="Add any detail that helps you pick this up later."
-                {...form.register('description')}
-              />
-              <FieldError errors={[form.formState.errors.description]} />
-            </Field>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor="task-status">Status</FieldLabel>
-                <Controller
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="task-status" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {TASK_STATUSES.map((status) => (
-                          <SelectItem key={status} value={status}>
-                            {STATUS_META[status].label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
-
-              <Field>
-                <FieldLabel htmlFor="task-priority">Priority</FieldLabel>
-                <Controller
-                  control={form.control}
-                  name="priority"
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="task-priority" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {TASK_PRIORITIES.map((priority) => (
-                          <SelectItem key={priority} value={priority}>
-                            {PRIORITY_META[priority].label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
-            </div>
-
-            <Field data-invalid={Boolean(form.formState.errors.dueDate)}>
-              <FieldLabel htmlFor="task-due">Due date</FieldLabel>
-              <Input
-                id="task-due"
-                type="date"
-                min={earliestDueDate()}
-                aria-invalid={Boolean(form.formState.errors.dueDate)}
-                {...form.register('dueDate')}
-              />
-              <FieldDescription>
-                Optional — leave empty for no deadline. Must be a future date.
-              </FieldDescription>
-              <FieldError errors={[form.formState.errors.dueDate]} />
-            </Field>
-          </FieldGroup>
+            </FieldGroup>
+          </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" size="lg" onClick={() => onOpenChange(false)}>
