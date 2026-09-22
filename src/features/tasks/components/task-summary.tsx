@@ -11,25 +11,30 @@ const CARDS = [
 ] as const
 
 type Props = {
+  /**
+   * Board-wide counts from `useTaskStats`, not a tally of the rows on screen —
+   * so "3 done" means three in the board, on page one or page four alike. The
+   * page-scoped caption that used to sit above these cards went with the
+   * client-side filtering that made it necessary.
+   */
   stats?: TaskStats
   isLoading?: boolean
   /**
-   * True when the board spans more than one page. The list endpoint returns no
-   * aggregates — only `total` — so these four numbers are counted from the rows
-   * on screen and describe the page, not the board. Saying so is cheaper than
-   * having someone trust "3 done" on a board of sixty.
+   * Set when a search term or a priority is narrowing the board, which these
+   * counts follow — a badge has to say how many rows clicking it would show.
+   * The cards then describe the matches, not the board, and the caption says so.
    */
-  scopedToPage?: boolean
+  isNarrowed?: boolean
 }
 
-export function TaskSummary({ stats, isLoading, scopedToPage }: Props) {
+export function TaskSummary({ stats, isLoading, isNarrowed }: Props) {
   const completion = stats && stats.all > 0 ? Math.round((stats.done / stats.all) * 100) : 0
 
   return (
     <section aria-label="Task overview" className="space-y-4">
-      {scopedToPage && (
+      {isNarrowed && (
         <p className="text-xs text-muted-foreground">
-          Counts describe the current page. Totals for the whole board are below the list.
+          Counts describe the tasks matching your search, not the whole board.
         </p>
       )}
 

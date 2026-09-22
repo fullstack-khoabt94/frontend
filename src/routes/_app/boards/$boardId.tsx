@@ -28,6 +28,7 @@ import {
   useCreateTask,
   useDeleteTask,
   useTaskList,
+  useTaskStats,
   useUpdateTask,
   useUpdateTaskStatus,
 } from '@/features/tasks/queries'
@@ -78,7 +79,14 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
   const navigate = useNavigate({ from: Route.fullPath })
 
   const [searchInput, setSearchInput] = useState(search.q)
-  const debouncedSearch = useDebouncedValue(searchInput, 300)
+  /**
+   * 500ms rather than the hook's 300 default, because this box is a request
+   * now: `?search=` goes to the server and drags the three count queries along
+   * with it, so every keystroke that slips through is four calls. The longer
+   * pause is also what a mid-word hesitation costs — 300 fires partway through
+   * "rele|ase" often enough to be worth avoiding.
+   */
+  const debouncedSearch = useDebouncedValue(searchInput, 500)
 
   const [formOpen, setFormOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | undefined>()
@@ -101,17 +109,34 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
   const archiveBoard = useArchiveBoard()
 
   const list = useTaskList(search, boardId)
+  /**
+   * The badge and summary counts. They follow the search box and the priority
+   * select but **not** the status tabs — a tab's own badge has to keep saying
+   * how many rows it holds while a different tab is open.
+   */
+  const stats = useTaskStats(boardId, search.q, search.priority, search.dueOnOrBefore)
   const createTask = useCreateTask(boardId)
   const updateTask = useUpdateTask(boardId)
   const updateStatus = useUpdateTaskStatus(boardId)
   const deleteTask = useDeleteTask(boardId)
 
-  const { tasks, stats, pageMeta } = list
+  const { tasks, pageMeta } = list
   const isInitialLoading = list.isPending
   // A page swap keeps the previous rows on screen; dim them rather than tearing
   // the list down into skeletons.
   const isSwappingPage = list.isPlaceholderData
-  const isNarrowed = Boolean(search.q) || search.filter !== 'all'
+  /** True when the view shows a subset of the board rather than all of it. */
+  const isNarrowed =
+    Boolean(search.q) ||
+    search.filter !== 'all' ||
+    Boolean(search.priority) ||
+    Boolean(search.dueOnOrBefore)
+  /**
+   * Only meaningful on the unnarrowed view, where `total` is every task in the
+   * board. Under a filter it counts matches instead, so the header and the
+   * archive dialog say nothing rather than quoting the wrong figure.
+   */
+  const boardTotal = isNarrowed ? undefined : pageMeta?.total
 
   /** Any change to what is being listed restarts at page 1. */
   const changeSearch = (next: Partial<typeof search>) =>
@@ -214,9 +239,9 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
               {/* The fallback counts the whole board, not the page — `total` is
                   the one figure the server sends that spans every page. */}
               {data?.description ??
-                (pageMeta
-                  ? `${pageMeta.total} task${pageMeta.total === 1 ? '' : 's'} in this board.`
-                  : ' ')}
+                (boardTotal === undefined
+                  ? ' '
+                  : `${boardTotal} task${boardTotal === 1 ? '' : 's'} in this board.`)}
             </p>
           </div>
         </div>
@@ -268,7 +293,11 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
         <TaskSummary
           stats={stats}
           isLoading={isInitialLoading}
-          scopedToPage={(pageMeta?.totalPages ?? 1) > 1}
+          // Everything the counts themselves follow — the status tabs are the
+          // one filter they deliberately ignore.
+          isNarrowed={
+            Boolean(search.q) || Boolean(search.priority) || Boolean(search.dueOnOrBefore)
+          }
         />
 
         <section className="space-y-4">
@@ -277,6 +306,10 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
             onFilterChange={(filter) => changeSearch({ filter })}
             search={searchInput}
             onSearchChange={setSearchInput}
+            priority={search.priority}
+            onPriorityChange={(priority) => changeSearch({ priority })}
+            dueOnOrBefore={search.dueOnOrBefore}
+            onDueChange={(dueOnOrBefore) => changeSearch({ dueOnOrBefore })}
             sort={search.sort}
             onSortChange={(sort) => changeSearch({ sort })}
             stats={stats}
@@ -285,7 +318,8 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-muted-foreground">
               {FILTER_META[search.filter].label}
-              {stats ? ` · ${tasks.length}` : ''}
+              {/* The whole matching set, not the rows on this page. */}
+              {pageMeta ? ` · ${pageMeta.total}` : ''}
             </h2>
             <p className="text-xs text-muted-foreground">
               {FILTER_META[search.filter].description}
@@ -362,8 +396,8 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
 
       <ArchiveBoardDialog
         board={archiveOpen ? data : undefined}
-        // The board's real task count, not the page's.
-        taskCount={pageMeta?.total}
+        // Only when it is the board's real count — see `boardTotal`.
+        taskCount={boardTotal}
         onOpenChange={setArchiveOpen}
         onConfirm={() => {
           if (!data) return

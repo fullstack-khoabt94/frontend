@@ -1,22 +1,24 @@
-import { useMemo } from 'react'
 import {
   keepPreviousData,
   queryOptions,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { getApiErrorMessage } from '@/lib/api/client'
-import { tasksApi, type TaskListParams } from './api'
-import { buildPageView } from './list'
+import { tasksApi, type TaskCountParams, type TaskListParams } from './api'
 import {
   taskToFormValues,
+  TASK_STATUSES,
   type PagedTasks,
   type Task,
   type TaskFormValues,
+  type TaskPriority,
   type TaskSearch,
+  type TaskStats,
   type TaskStatus,
 } from './schemas'
 
@@ -29,12 +31,21 @@ export const taskKeys = {
    */
   lists: () => [...taskKeys.all, 'list'] as const,
   /**
-   * One entry per (board, page, size, sort). The cache is keyed by the request
-   * now that the server does the scoping — the old single-array key could not
-   * survive a paginated endpoint, since two pages of the same board are
-   * genuinely different responses.
+   * One entry per (board, page, size, sort, filter, search, priority). The cache
+   * is keyed by the whole request now that the server does the scoping — the old
+   * single-array key could not survive a paginated endpoint, since two pages of
+   * the same board are genuinely different responses, and the same is true of
+   * two filters.
    */
   list: (params: TaskListParams) => [...taskKeys.lists(), params] as const,
+  /**
+   * The badge counts, kept off `lists()` on purpose: the optimistic status
+   * toggle rewrites every cached `PagedTasks` under that prefix, and a count is
+   * a bare number. Both still sit under `all`, so one invalidation refreshes
+   * the rows and the numbers together.
+   */
+  counts: () => [...taskKeys.all, 'count'] as const,
+  count: (params: TaskCountParams) => [...taskKeys.counts(), params] as const,
 }
 
 export const taskListQuery = (params: TaskListParams) =>
@@ -49,24 +60,76 @@ export const taskListQuery = (params: TaskListParams) =>
     placeholderData: keepPreviousData,
   })
 
+export const taskCountQuery = (params: TaskCountParams) =>
+  queryOptions({
+    queryKey: taskKeys.count(params),
+    queryFn: () => tasksApi.count(params),
+    placeholderData: keepPreviousData,
+  })
+
+/**
+ * The per-tab counts, from the database rather than from the rows on screen.
+ *
+ * Three requests, one per status, because the API has no aggregate endpoint —
+ * see {@link TaskStats}. `all` and `not_done` are sums rather than two more
+ * calls, which is exact: the three statuses are the whole enum, so nothing can
+ * fall outside them.
+ *
+ * `combine` runs inside React Query, so the returned object is memoised across
+ * renders even though `useQueries` hands back a fresh array each time.
+ */
+export function useTaskStats(
+  boardId: string,
+  q: string,
+  priority?: TaskPriority,
+  dueOnOrBefore?: string,
+) {
+  return useQueries({
+    queries: TASK_STATUSES.map((status) =>
+      taskCountQuery({ boardId, status, q, priority, dueOnOrBefore }),
+    ),
+    combine: (results): TaskStats | undefined => {
+      // All three or none: a half-filled summary that settles one card at a
+      // time reads as numbers changing under the reader.
+      if (results.some((result) => result.data === undefined)) return undefined
+      const [todo, inProgress, done] = results.map((result) => result.data as number)
+      return {
+        todo,
+        in_progress: inProgress,
+        done,
+        not_done: todo + inProgress,
+        all: todo + inProgress + done,
+      }
+    },
+  })
+}
+
 export function useTaskList(search: TaskSearch, boardId: string) {
   const params: TaskListParams = {
     boardId,
     page: search.page,
     size: search.size,
     sort: search.sort,
+    filter: search.filter,
+    q: search.q,
+    priority: search.priority,
+    dueOnOrBefore: search.dueOnOrBefore,
   }
   const query = useQuery(taskListQuery(params))
   const page = query.data
 
-  const view = useMemo(() => buildPageView(page?.data ?? [], search), [page?.data, search])
-
   return {
     ...query,
-    tasks: view.tasks,
-    /** Page-scoped — see `features/tasks/list.ts`. */
-    stats: page ? view.stats : undefined,
-    /** Server-side totals, and the only counts on the screen that describe the whole board. */
+    /**
+     * Straight from the server. Nothing filters, searches or reorders these
+     * rows on the way through any more — the endpoint did all three, and doing
+     * it again here could only disagree with the pagination walking over it.
+     */
+    tasks: page?.data ?? [],
+    /**
+     * Totals for the **current view**, not the board: `total` counts every task
+     * matching the active filter, search and priority, across all pages.
+     */
     pageMeta: page
       ? {
           // Back to one-based, matching the URL.

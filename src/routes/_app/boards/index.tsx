@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Plus, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { ArchiveBoardDialog } from '@/features/boards/components/archive-board-dialog'
 import { BoardCard, BoardCardSkeleton } from '@/features/boards/components/board-card'
@@ -20,6 +21,7 @@ import {
   boardSearchSchema,
   type Board,
   type BoardFormValues,
+  type BoardView,
 } from '@/features/boards/schemas'
 import { cn } from '@/lib/utils'
 
@@ -121,45 +123,42 @@ function BoardsPage() {
 
           {/* Two views only, so the segmented strip fits at every width — no
               select fallback is needed here, unlike the five task filters. */}
-          <div
-            role="tablist"
+          <ToggleGroup
+            type="single"
+            value={search.view}
+            // Radix lets a single group deselect back to `''`; the grid always
+            // shows one of the two views, so clicking the active one is a no-op.
+            onValueChange={(value) =>
+              value &&
+              void navigate({
+                search: (previous) => ({ ...previous, view: value as BoardView }),
+              })
+            }
+            variant="outline"
+            size="lg"
+            spacing={0}
             aria-label="Filter boards"
-            className="inline-flex gap-1 rounded-xl border bg-card p-1"
           >
-            {BOARD_VIEWS.map((option) => {
-              const active = option === search.view
-              return (
-                <button
-                  key={option}
-                  role="tab"
-                  type="button"
-                  aria-selected={active}
-                  onClick={() =>
-                    void navigate({ search: (previous) => ({ ...previous, view: option }) })
-                  }
-                  className={cn(
-                    'inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors',
-                    'focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none',
-                    active
-                      ? 'bg-brand-900 text-white dark:bg-brand-200 dark:text-brand-900'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                  )}
-                >
-                  {BOARD_VIEW_META[option].label}
-                  {counts && (
-                    <span
-                      className={cn(
-                        'rounded-md px-1.5 py-0.5 text-xs tabular-nums',
-                        active ? 'bg-white/20 dark:bg-brand-900/15' : 'bg-muted',
-                      )}
-                    >
-                      {counts[option]}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
+            {BOARD_VIEWS.map((option) => (
+              <ToggleGroupItem
+                key={option}
+                value={option}
+                className="px-3 data-[state=on]:bg-brand-900 data-[state=on]:text-white dark:data-[state=on]:bg-brand-200 dark:data-[state=on]:text-brand-900"
+              >
+                {BOARD_VIEW_META[option].label}
+                {counts && (
+                  <span
+                    className={cn(
+                      'rounded-md px-1.5 py-0.5 text-xs tabular-nums',
+                      option === search.view ? 'bg-white/20 dark:bg-brand-900/15' : 'bg-muted',
+                    )}
+                  >
+                    {counts[option]}
+                  </span>
+                )}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
         </div>
 
         <p className="text-xs text-muted-foreground">{BOARD_VIEW_META[search.view].description}</p>

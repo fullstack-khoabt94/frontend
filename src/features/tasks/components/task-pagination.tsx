@@ -25,9 +25,9 @@ type Props = {
   /** True while the next page is in flight and the previous one is still shown. */
   isFetching?: boolean
   /**
-   * Set when the status filter or the search box is narrowing the page, which
-   * makes the rows on screen a subset of `meta.size`. The range then describes
-   * what was *fetched*, not what is visible, and the caption says so.
+   * Set when a filter, a search term or a priority is active, which changes what
+   * `meta.total` is counting — matches rather than the whole board. The caption
+   * switches wording rather than dropping the number.
    */
   isNarrowed?: boolean
 }
@@ -50,14 +50,12 @@ function pageWindow(current: number, totalPages: number): (number | null)[] {
 }
 
 /**
- * The pagination footer, and the only place on the screen that reports the
- * board's real totals.
+ * The pagination footer.
  *
- * That matters because everything else in the toolbar is page-scoped: the
- * server takes the board in the path and `page`, `size` and `sort` as params —
- * but no status and no
- * keyword, so the filter tabs and the search box narrow the rows already
- * fetched. `meta.total` is the one number that comes from the database.
+ * `meta.total` counts every row matching the active filter, search and priority
+ * — the server applies all three — so the range and the total describe the same
+ * set the tabs and the summary do. Nothing on this screen is page-scoped any
+ * more.
  */
 export function TaskPagination({
   meta,
@@ -79,19 +77,20 @@ export function TaskPagination({
       <div className="space-y-1">
         <p aria-live="polite" className="text-sm text-muted-foreground tabular-nums">
           {total === 0
-            ? 'No tasks in this board'
-            : `Showing ${firstOnPage}–${lastOnPage} of ${total} task${total === 1 ? '' : 's'}`}
+            ? isNarrowed
+              ? 'No tasks match this view'
+              : 'No tasks in this board'
+            : `Showing ${firstOnPage}–${lastOnPage} of ${total} ${
+                isNarrowed ? 'matching ' : ''
+              }task${total === 1 ? '' : 's'}`}
         </p>
-        {isNarrowed && (
-          <p className="text-xs text-muted-foreground">
-            The filter and search apply to this page only.
-          </p>
-        )}
       </div>
 
       <div className="flex items-center gap-2">
         <Select value={String(size)} onValueChange={(value) => onSizeChange(Number(value))}>
-          <SelectTrigger className="h-9 w-28" aria-label="Tasks per page">
+          {/* The height needs the same variant the base class uses — see the
+              note on the priority trigger in `task-filter-bar.tsx`. */}
+          <SelectTrigger className="w-28 data-[size=default]:h-9" aria-label="Tasks per page">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
