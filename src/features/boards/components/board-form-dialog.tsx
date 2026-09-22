@@ -14,6 +14,7 @@ import {
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { BOARD_COLOR_META } from '../constants'
 import {
@@ -121,35 +122,28 @@ export function BoardFormDialog({ open, onOpenChange, board, onSubmit, isPending
                 control={form.control}
                 name="icon"
                 render={({ field }) => (
-                  <div
+                  <ToggleGroup
+                    type="single"
                     id="board-icon"
-                    role="radiogroup"
+                    value={field.value}
+                    // A board always has an icon, so clicking the current one
+                    // must not clear it back to Radix's empty value.
+                    onValueChange={(value) => value && field.onChange(value)}
+                    variant="outline"
                     aria-label="Board icon"
-                    className="flex flex-wrap gap-2"
+                    className="flex-wrap"
                   >
-                    {BOARD_ICONS.map((icon) => {
-                      const active = field.value === icon
-                      return (
-                        <button
-                          key={icon}
-                          type="button"
-                          role="radio"
-                          aria-checked={active}
-                          aria-label={`Icon ${icon}`}
-                          onClick={() => field.onChange(icon)}
-                          className={cn(
-                            'grid size-10 place-items-center rounded-lg border text-lg transition-colors',
-                            'focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none',
-                            active
-                              ? 'border-brand-500 bg-brand-50'
-                              : 'border-border hover:bg-muted',
-                          )}
-                        >
-                          {icon}
-                        </button>
-                      )
-                    })}
-                  </div>
+                    {BOARD_ICONS.map((icon) => (
+                      <ToggleGroupItem
+                        key={icon}
+                        value={icon}
+                        aria-label={`Icon ${icon}`}
+                        className="size-10 rounded-lg text-lg data-[state=on]:border-brand-500 data-[state=on]:bg-brand-50 dark:data-[state=on]:bg-accent"
+                      >
+                        {icon}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
                 )}
               />
             </Field>
@@ -160,29 +154,32 @@ export function BoardFormDialog({ open, onOpenChange, board, onSubmit, isPending
                 control={form.control}
                 name="color"
                 render={({ field }) => (
-                  <div
+                  <ToggleGroup
+                    type="single"
                     id="board-color"
-                    role="radiogroup"
+                    value={field.value}
+                    // As above: every board carries a colour, so there is no
+                    // empty state for this group to fall back to.
+                    onValueChange={(value) => value && field.onChange(value)}
                     aria-label="Board colour"
-                    className="flex flex-wrap gap-2"
+                    className="flex-wrap"
                   >
                     {BOARD_COLORS.map((color) => {
                       const active = field.value === color
                       const meta = BOARD_COLOR_META[color]
                       return (
-                        <button
+                        <ToggleGroupItem
                           key={color}
-                          type="button"
-                          role="radio"
-                          aria-checked={active}
+                          value={color}
                           aria-label={meta.label}
-                          onClick={() => field.onChange(color)}
                           className={cn(
                             // `text-background`, not `text-white`: the swatches
                             // are dark on light and light on dark, so the tick
                             // has to invert with them.
-                            'grid size-9 place-items-center rounded-full text-background transition-transform',
-                            'focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none',
+                            'size-9 rounded-full text-background transition-transform',
+                            // The swatch paints the button; the toggle's own
+                            // hover fill would grey it out.
+                            'hover:text-background',
                             meta.swatch,
                             active
                               ? 'ring-2 ring-foreground/70 ring-offset-2 ring-offset-background'
@@ -193,10 +190,10 @@ export function BoardFormDialog({ open, onOpenChange, board, onSubmit, isPending
                               selection — a ring around one swatch in a row of
                               swatches is not distinguishable to everyone. */}
                           {active && <Check className="size-4" />}
-                        </button>
+                        </ToggleGroupItem>
                       )
                     })}
-                  </div>
+                  </ToggleGroup>
                 )}
               />
             </Field>

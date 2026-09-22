@@ -168,22 +168,36 @@ two sources of truth.
 
 `TaskFilter = 'all' | 'not_done' | 'todo' | 'in_progress' | 'done'`
 
-These are **client-side, UI-only concepts** and stay lowercase so URLs read well — they
-are never sent to the backend. `GET /board/{boardId}/task/all` accepts `page`, `size` and
-`sort`, and nothing else: no `?status=`, no `?q=`.
+These stay lowercase so URLs read well, but they are **no longer a client-side concept**:
+`GET /board/{boardId}/task/all` now takes `statuses`, `priority` and `search` alongside
+`page`, `size` and `sort`, so a filter narrows the whole board and the rows that come back
+are already the answer.
 
-**So the filter and the search box narrow one page of results, not the whole board**, and the
-tab counts describe that same page. On a board of 60 tasks at 20 per page, "Done" shows the
-done tasks among the 20 currently loaded. That is a real limitation and the UI states it
-rather than hiding it: `TaskSummary` prints a page-scoped caption whenever there is more than
-one page, and `TaskPagination` reports the server's `total` underneath the list — the only
-figure on the screen that spans the whole board.
+`FILTER_STATUSES` in `features/tasks/schemas.ts` is the one place a tab becomes a query
+parameter:
 
-Sorting is **not** in this bucket. It moved to the server with the pagination, because a
-client-side sort would reorder one page against the ordering the paging is walking through.
+| Tab           | `?statuses=`           |
+| ------------- | ---------------------- |
+| `all`         | _(omitted)_            |
+| `not_done`    | `TODO` + `IN_PROGRESS` |
+| `todo`        | `TODO`                 |
+| `in_progress` | `IN_PROGRESS`          |
+| `done`        | `DONE`                 |
 
-Delete `features/tasks/list.ts` the moment the backend accepts `?status=` and `?q=`; every
-count on the screen becomes honest in the same commit.
+`not_done` is why the backend parameter is a **list**: it is two statuses, and no single
+`?status=` could express it. `all` sends nothing at all — `TaskSpecification` skips the
+predicate when the list is null or empty, so an omitted parameter and "every status" are the
+same query, and the shorter URL wins.
+
+`features/tasks/list.ts` is **gone** — `buildPageView`, `matchesFilter`, `matchesSearch` and
+`buildStats` with it. Sorting was already the server's job; filtering and searching joined
+it, and nothing narrows or reorders a page on the way through any more.
+
+**The counts are board-wide now**, which is the whole point of the change. There is still no
+aggregate endpoint, so `useTaskStats` fires three `size=1` list calls — one per status — and
+reads each for its `total`. Three small requests instead of one, in exchange for numbers that
+come from the database rather than from the twenty rows on screen. `all` and `not_done` are
+sums of those three, which is exact because the three statuses are the whole enum.
 
 ### User
 
@@ -316,9 +330,9 @@ to `light`.
 /signup                      │ _auth  (pathless layout)
 /forgot-password             │        signed-in visitors are bounced to /boards
 /reset-password?token=…      ┘
-/boards?view&q                           ┐
-/boards/$boardId?filter&q&sort&page&size │ _app (pathless layout, requires a session)
-/tasks → redirect: /boards               ┘
+/boards?view&q                                    ┐
+/boards/$boardId?filter&q&priority&sort&page&size │ _app (requires a session)
+/tasks → redirect: /boards                        ┘
 ```
 
 **Boards are the entry point.** `/`, login and the `_auth` guard all land on `/boards`,
@@ -352,10 +366,16 @@ states and the mutation wiring, and would make switching filters feel like a pag
 Instead the filter lives in the URL as a search param, so every view is still linkable,
 refresh-safe and back-button friendly.
 
-**Search params are the source of truth** for `filter`, `q`, `sort`, `page` and `size` on
-`/boards/$boardId`. They are validated by `taskSearchSchema` (zod) with `.catch()` fallbacks,
-so a hand-edited or stale URL degrades to defaults instead of crashing — `?size=9999` becomes
-20 rather than a 400 from Spring, and `?page=0` becomes 1.
+**Search params are the source of truth** for `filter`, `q`, `priority`, `sort`, `page` and
+`size` on `/boards/$boardId`. All six are query parameters on the API call too, so the URL
+and the request say the same thing. `priority` is **optional rather than an `'ALL'` member**,
+so the cleared state drops out of the URL instead of sitting in it as `?priority=ALL`, and it
+maps straight onto `QueryTasksDto.priority`, a nullable single value.
+
+All six are validated by `taskSearchSchema` (zod) with `.catch()` fallbacks, so a hand-edited
+or stale URL degrades to defaults instead of crashing — `?size=9999` becomes 20 rather than a
+400 from Spring, `?page=0` becomes 1, and `?priority=URGENT` clears itself rather than
+reaching Spring as a bind error.
 
 **Guards live in `beforeLoad`**, not in components — a protected page never renders a frame
 before redirecting. `/_app` records the attempted URL in `?redirect=` so login returns the
@@ -430,8 +450,7 @@ src/
 │       ├── components/     task-item, dialogs, filter bar, summary, pagination,
 │       │                   empty states
 │       ├── api.ts          request params in, PagedResponse out
-│       ├── list.ts         page-scoped filter / search / stats
-│       ├── queries.ts      query options, mutations, cache keys
+│       ├── queries.ts      query options, mutations, cache keys, per-status counts
 │       ├── schemas.ts
 │       └── constants.ts    labels, icons and colour classes per status/priority/filter
 ├── hooks/                  use-debounced-value, use-theme
@@ -510,7 +529,9 @@ and `BoardProgress` are gone with it. Adding `taskCount` and `doneCount` to `Boa
 
 **Every task route is `/board/{boardId}/task/…`.** The board is a path segment on all five
 calls — not a query parameter, not a body field — so the scoping moved out of the browser and
-into the URL, and `buildListView(tasks, search, boardId)` became `buildPageView(page, search)`.
+into the URL. `buildListView(tasks, search, boardId)` became `buildPageView(page, search)`,
+and once the endpoint learned to filter, that went too: there is no client-side list
+pipeline left.
 
 The nesting is a **security boundary, not a style choice**. `TaskServiceImpl.getValidTask`
 checks two things on every single-task call: the caller owns `{boardId}`, and `{taskId}`
@@ -524,10 +545,16 @@ Two intermediate fixes did not close it — one added the parameter but never us
 other authorised the **body's** `boardId`, which the attacker chooses. Only deriving the
 board from the path fixed it. Do not reintroduce a task route that does not carry a board.
 
-That also reversed the cache key. `taskKeys.list(params)` is keyed by `(boardId, page, size,
-sort)` — a single shared array could not survive a paginated endpoint, since two pages of one
-board are genuinely different responses. `taskKeys.lists()` is the prefix the mutations
-invalidate and the optimistic toggle writes through.
+That also reversed the cache key. `taskKeys.list(params)` is keyed by the whole request —
+`(boardId, page, size, sort, filter, q, priority)` — because a single shared array could not
+survive a paginated, filtered endpoint: two pages of one board, or two filters over it, are
+genuinely different responses. `taskKeys.lists()` is the prefix the mutations invalidate and
+the optimistic toggle writes through.
+
+`taskKeys.counts()` is a **sibling prefix, deliberately**: the optimistic toggle rewrites
+every cached `PagedTasks` under `lists()`, and a count is a bare number that would not
+survive that callback. Both sit under `taskKeys.all`, so one invalidation refreshes the rows
+and the badges together.
 
 `TaskResponse` **dropped `userId`** — ownership moved to the board, and a task reaches its
 owner through `task.board.user`. Nothing on the client needed it, so nothing replaced it. It
@@ -541,16 +568,36 @@ ownership check with a `404` rather than moving it. The picker in `TaskFormDialo
 
 ### Tasks — nested and paginated, and the frontend matches it
 
-| Method   | Path                                       | Request                                             | Response                  |
-| -------- | ------------------------------------------ | --------------------------------------------------- | ------------------------- |
-| `GET`    | `/board/{boardId}/task/all?page&size&sort` | —                                                   | `200 PagedResponse<Task>` |
-| `GET`    | `/board/{boardId}/task/{taskId}`           | —                                                   | `200 Task`                |
-| `POST`   | `/board/{boardId}/task`                    | `{ title, description, status, priority, dueDate }` | `201 Task`                |
-| `PUT`    | `/board/{boardId}/task/{taskId}`           | same                                                | `200 Task`                |
-| `DELETE` | `/board/{boardId}/task/{taskId}`           | —                                                   | `200` + `"Done"`          |
+| Method   | Path                             | Request                                             | Response                  |
+| -------- | -------------------------------- | --------------------------------------------------- | ------------------------- |
+| `GET`    | `/board/{boardId}/task/all?…`    | see below                                           | `200 PagedResponse<Task>` |
+| `GET`    | `/board/{boardId}/task/{taskId}` | —                                                   | `200 Task`                |
+| `POST`   | `/board/{boardId}/task`          | `{ title, description, status, priority, dueDate }` | `201 Task`                |
+| `PUT`    | `/board/{boardId}/task/{taskId}` | same                                                | `200 Task`                |
+| `DELETE` | `/board/{boardId}/task/{taskId}` | —                                                   | `200` + `"Done"`          |
 
 `PagedResponse<T>` is `{ data: T[], page, size, total, totalPages }` — Spring's `Page`
 flattened by `com.eazybytes.dtos.PagedResponse`. Notes that shape the client:
+
+- **The list endpoint filters.** `@ModelAttribute QueryTasksDto` binds four optional
+  parameters on top of `page`, `size` and `sort`, and `TaskSpecification` turns each into a
+  predicate, skipping the ones that are absent:
+
+  | Param           | Java type          | Meaning                                                 |
+  | --------------- | ------------------ | ------------------------------------------------------- |
+  | `statuses`      | `List<TaskStatus>` | Repeated: `?statuses=TODO&statuses=IN_PROGRESS`         |
+  | `priority`      | `TaskPriority`     | Single value                                            |
+  | `search`        | `String`           | `LIKE %…%` on **`title` only** — not the description    |
+  | `dueOnOrBefore` | `LocalDate`        | Inclusive of that whole day; **excludes undated tasks** |
+
+  **`statuses` must be repeated, not bracketed.** Axios's default array format is
+  `statuses[]=TODO`, and Spring binds `@ModelAttribute` by the plain property name — so the
+  bracketed form binds _nothing_ and the response quietly looks like "All tasks". `tasksApi`
+  passes `paramsSerializer: { indexes: null }` on both list calls for exactly this, scoped
+  to those two calls rather than set on the shared client.
+
+  **`dueOnOrBefore` is not wired to any control yet** — the backend accepts it, the UI has
+  no date filter. It needs a picker and one more search param; nothing else.
 
 - **The board is always in the path**, so there is no cross-board list. See above.
 - **`DELETE` ignores its `{boardId}`.** `deleteTask` still runs the older inline check
@@ -743,7 +790,7 @@ upward; there is no horizontal page scroll at any width.
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `< sm` (640)  | Auth pages drop the brand panel and show the small logo. Task rows hide the inline Start / Finish / Reopen buttons — the checkbox and the ⋯ menu carry those actions. Status filters render as a `<Select>`. Pagination drops the numbered pages for a `3 / 8` counter between the arrows. Header hides the user's name, keeps the avatar. |
 | `≥ sm` (640)  | Inline quick-action buttons on task rows. Status filters become the segmented tab strip (~500px wide, so it fits from 640 without scrolling). Task dialog widens to `75vw`. Board grid goes 1 → 2 columns, and board detail's Edit button shows its label.                                                                                 |
-| `≥ md` (768)  | Summary cards go from 2×2 to a single row of 4.                                                                                                                                                                                                                                                                                            |
+| `≥ md` (768)  | Summary cards go from 2×2 to a single row of 4. The toolbar's priority and sort selects move up beside the search box; below `md` they share a row of their own, because three controls on one line squeeze the search box to a few characters at 640.                                                                                     |
 | `≥ lg` (1024) | Auth pages become the two-column split: brand panel left, form right. Board grid goes to 3 columns. Task dialog splits 3fr / 1fr: title + description left, board / status / priority / due date right.                                                                                                                                    |
 
 Rules that keep it working:
@@ -776,9 +823,10 @@ Rules that keep it working:
 - **Imports** use the `@/` alias, never `../../..`.
 - **Files** are kebab-case; components are PascalCase; hooks are `use-*`.
 - **Query keys** come from `taskKeys` / `boardKeys` — never write an inline array key.
-  `taskKeys.list(params)` is keyed by the whole request — `(boardId, page, size, sort)` —
-  because the server does the scoping now and two pages of one board are different responses.
-  Mutations invalidate the `taskKeys.lists()` prefix so every cached page catches up.
+  `taskKeys.list(params)` is keyed by the whole request — `(boardId, page, size, sort,
+filter, q, priority)` — because the server does the scoping now and two pages of one board,
+  or two filters over it, are different responses. Mutations invalidate `taskKeys.all`, which
+  covers the `lists()` pages and the `counts()` badges in one go.
 - **Mutations own their toasts.** Components call `mutate` and stay quiet.
 - **Loading states are skeletons**, not spinners, wherever the shape is known.
 - **Empty states are specific**: no-search-results, no-tasks-at-all and each per-filter
@@ -852,10 +900,23 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
   `@Future` on update as well as create, so any `PUT` carrying a past deadline is
   rejected — including a plain status toggle. Removing `@Future` from `UpdateTaskDto` (or
   dropping it entirely) is the fix; the client cannot work around it.
-- **The status filter and the search box are page-scoped.** `/board/{boardId}/task/all`
-  accepts `page`, `size` and `sort` and nothing else, so both narrow the rows already fetched rather
-  than the board. The summary caption and the pagination totals say so out loud. `?status=`
-  and `?q=` on the backend delete `features/tasks/list.ts` outright.
+- **Search matches the title only.** `TaskSpecification` runs one `LIKE` against `title`;
+  the description is not searched, deliberately deferred. It is also not a free win when it
+  lands: descriptions are stored as rich-text **HTML**, so a naive `LIKE %div%` would match
+  markup rather than prose. Stripping tags server-side, or a second plain-text column, comes
+  with it.
+- **Search is not case-insensitive in every locale, and does not escape wildcards.** The
+  predicate lowercases both sides with the JVM's default locale, and a `%` or `_` typed into
+  the search box is passed through as a LIKE wildcard. Both are backend fixes
+  (`Locale.ROOT`, plus an escape character); neither is visible from the client.
+- **The tab counts cost three extra requests.** There is no aggregate endpoint, so
+  `useTaskStats` asks the list endpoint for one row per status and reads `total`. A single
+  `GET /board/{boardId}/stats` returning `{ todo, inProgress, done }` collapses all three
+  and is the obvious next backend change — `useTaskStats` is the only caller to rewrite.
+- **`dueOnOrBefore` has no UI.** The backend filter exists and is unused; a due-date picker
+  plus one search param wires it up. Note it excludes undated tasks (a `NULL` fails the
+  comparison), which is the right default for "due before X" but worth stating on screen if
+  the control ever ships.
 - **Two sort options are missing because the backend cannot serve them.** `title` is not in
   `TaskServiceImpl.ALLOWED_SORT`, and `priority` is in it but sorts alphabetically —
   `Task.priority` is `@Enumerated(STRING)`, so the order is `HIGH, LOW, MEDIUM`. Priority

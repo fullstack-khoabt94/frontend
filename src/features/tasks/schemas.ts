@@ -140,15 +140,34 @@ export function taskToFormValues(task: Task): TaskFormValues {
 /**
  * The five list views the product requires.
  *
- * These stay **client-side**: `/board/{boardId}/task/all` accepts `page`, `size`
- * and `sort`, and nothing else — there is no `?status=` and no `?q=`. So the filter
- * and the search box narrow the page the server sent, not the whole board. See
- * `features/tasks/list.ts` for what that costs and `TaskPagination` for how the
- * UI says so.
+ * These are **server-side** now: `/board/{boardId}/task/all` takes `statuses`,
+ * `priority` and `search` alongside `page`, `size` and `sort`, so a filter
+ * narrows the whole board rather than the page that happened to be fetched.
+ * See {@link FILTER_STATUSES} for how a tab becomes a query parameter.
  */
 export const TASK_FILTERS = ['all', 'not_done', 'todo', 'in_progress', 'done'] as const
 export const taskFilterSchema = z.enum(TASK_FILTERS)
 export type TaskFilter = z.infer<typeof taskFilterSchema>
+
+/**
+ * Each tab as the `statuses` the backend expects.
+ *
+ * `QueryTasksDto.statuses` is a `List<TaskStatus>`, and `TaskSpecification`
+ * skips the predicate entirely when the list is null or empty — which is what
+ * makes `all` a plain `undefined` here rather than "every status spelled out".
+ * Axios drops undefined params, so the "All tasks" tab sends no `statuses` at
+ * all.
+ *
+ * `not_done` is the reason the parameter is a list and not a single value: it
+ * is two statuses, and no single `?status=` could express it.
+ */
+export const FILTER_STATUSES: Record<TaskFilter, TaskStatus[] | undefined> = {
+  all: undefined,
+  not_done: ['TODO', 'IN_PROGRESS'],
+  todo: ['TODO'],
+  in_progress: ['IN_PROGRESS'],
+  done: ['DONE'],
+}
 
 /**
  * Sorting is the server's job now, so every option here has to be one the
@@ -201,6 +220,27 @@ export const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
 export const taskSearchSchema = z.object({
   filter: taskFilterSchema.catch('all').default('all'),
   q: z.string().trim().catch('').default(''),
+  /**
+   * Absent means "any priority". It stays optional rather than gaining an
+   * `'ALL'` member so that the cleared state drops out of the URL instead of
+   * sitting in it as `?priority=ALL`, and so it maps straight onto
+   * `QueryTasksDto.priority`, which is a nullable single value.
+   */
+  priority: taskPrioritySchema.optional().catch(undefined),
+  /**
+   * A plain `yyyy-MM-dd` string, matching both the `<input type="date">` that
+   * produces it and the Java `LocalDate` that receives it — no `Date` object in
+   * between, so nothing can shift it across a timezone on the way.
+   *
+   * Validated by shape rather than parsed: a malformed `?dueOnOrBefore=` clears
+   * itself here instead of reaching Spring, which would answer a bind error
+   * rather than a list.
+   */
+  dueOnOrBefore: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .catch(undefined),
   sort: taskSortSchema.catch('created_desc').default('created_desc'),
   page: z.coerce.number().int().min(1).catch(1).default(1),
   size: z.coerce
@@ -212,4 +252,13 @@ export const taskSearchSchema = z.object({
 })
 export type TaskSearch = z.output<typeof taskSearchSchema>
 
+/**
+ * One count per tab, for the summary cards and the tab badges.
+ *
+ * There is no aggregate endpoint, so these come from three `size=1` list calls
+ * — one per status — read for their `total` alone. That is three small requests
+ * instead of one, and the trade is that the numbers finally describe the whole
+ * board rather than the twenty rows on screen. Replace `useTaskStats` with a
+ * single call the moment `GET /board/{boardId}/stats` exists.
+ */
 export type TaskStats = Record<TaskFilter, number>

@@ -1,12 +1,16 @@
 import { api } from '@/lib/api/client'
 import {
+  FILTER_STATUSES,
   pagedTaskListSchema,
   taskSchema,
   TASK_SORT_PARAM,
   type PagedTasks,
   type Task,
+  type TaskFilter,
   type TaskFormValues,
+  type TaskPriority,
   type TaskSort,
+  type TaskStatus,
 } from './schemas'
 
 /**
@@ -44,8 +48,56 @@ function taskPath(boardId: string, taskId?: string) {
   return taskId ? `/board/${boardId}/task/${taskId}` : `/board/${boardId}/task`
 }
 
+/**
+ * Repeating a query parameter — `?statuses=TODO&statuses=IN_PROGRESS`.
+ *
+ * Axios's default array format is `statuses[]=TODO`, and Spring binds
+ * `@ModelAttribute QueryTasksDto` by the plain property name, so the bracketed
+ * form silently binds nothing: the filter would be dropped and the response
+ * would look like "All tasks". `indexes: null` is what removes the brackets.
+ *
+ * Scoped to the two list calls rather than set on the shared client, because it
+ * changes how *every* array param on a request is written and no other endpoint
+ * takes one today.
+ */
+const REPEAT_ARRAY_PARAMS = { indexes: null } as const
+
+/** The filters the list endpoint understands, minus paging and sorting. */
+type TaskQuery = {
+  filter: TaskFilter
+  /** The search box. Sent as `search`, matched against the title only. */
+  q: string
+  priority?: TaskPriority
+  /**
+   * `yyyy-MM-dd`, inclusive of that whole day — the backend compares against
+   * `dueOnOrBefore.atStartOfDay().plusDays(1)`.
+   *
+   * It **excludes undated tasks**: `due_date IS NULL` fails the comparison, so
+   * a task with no deadline is never "due before" anything. That is the right
+   * default for the question being asked, and the control says so on screen.
+   */
+  dueOnOrBefore?: string
+}
+
+/**
+ * Turns the URL's view into `QueryTasksDto`.
+ *
+ * Empty values become `undefined` rather than `''` or `[]` so axios leaves them
+ * off the wire entirely — the backend treats a missing parameter and a blank one
+ * the same way (`StringUtils.hasText`, a null check), but an absent one keeps
+ * the URL and the React Query key clean.
+ */
+function toQueryParams({ filter, q, priority, dueOnOrBefore }: TaskQuery) {
+  return {
+    statuses: FILTER_STATUSES[filter],
+    search: q || undefined,
+    priority,
+    dueOnOrBefore,
+  }
+}
+
 /** Everything the list endpoint accepts. `boardId` is the path, not a param. */
-export type TaskListParams = {
+export type TaskListParams = TaskQuery & {
   boardId: string
   /** One-based, as it appears in the URL. Converted for Spring below. */
   page: number
@@ -53,20 +105,65 @@ export type TaskListParams = {
   sort: TaskSort
 }
 
+/**
+ * A single status's total, for the tab badges and the summary cards.
+ *
+ * `search` and `priority` are carried along deliberately: a badge has to answer
+ * "how many rows would I get if I clicked this tab", and clicking it does not
+ * clear the search box.
+ */
+export type TaskCountParams = {
+  boardId: string
+  status: TaskStatus
+  q: string
+  priority?: TaskPriority
+  dueOnOrBefore?: string
+}
+
 export const tasksApi = {
   /**
-   * One page of a board's tasks.
+   * One page of a board's tasks, already filtered by the server.
    *
-   * Two translations happen here and nowhere else: the one-based page the URL
-   * carries becomes Spring's zero-based `page`, and the client's sort id becomes
-   * a `property,direction` pair the `PageableHandlerMethodArgumentResolver`
-   * understands.
+   * Three translations happen here and nowhere else: the one-based page the URL
+   * carries becomes Spring's zero-based `page`, the client's sort id becomes a
+   * `property,direction` pair the `PageableHandlerMethodArgumentResolver`
+   * understands, and the tab id becomes the `statuses` list
+   * `TaskSpecification` filters on.
    */
-  async list({ boardId, page, size, sort }: TaskListParams): Promise<PagedTasks> {
+  async list({ boardId, page, size, sort, ...query }: TaskListParams): Promise<PagedTasks> {
     const { data } = await api.get(`${taskPath(boardId)}/all`, {
-      params: { page: page - 1, size, sort: TASK_SORT_PARAM[sort] },
+      params: {
+        page: page - 1,
+        size,
+        sort: TASK_SORT_PARAM[sort],
+        ...toQueryParams(query),
+      },
+      paramsSerializer: REPEAT_ARRAY_PARAMS,
     })
     return pagedTaskListSchema.parse(data)
+  },
+
+  /**
+   * How many tasks a status holds, without fetching them.
+   *
+   * There is no count endpoint, so this is the list endpoint asked for the
+   * smallest page it will serve and read for `total` — one row down the wire per
+   * call. Crude, but honest: the number comes from the database rather than from
+   * counting the rows that happen to be on screen.
+   */
+  async count({ boardId, status, q, priority, dueOnOrBefore }: TaskCountParams): Promise<number> {
+    const { data } = await api.get(`${taskPath(boardId)}/all`, {
+      params: {
+        page: 0,
+        size: 1,
+        statuses: [status],
+        search: q || undefined,
+        priority,
+        dueOnOrBefore,
+      },
+      paramsSerializer: REPEAT_ARRAY_PARAMS,
+    })
+    return pagedTaskListSchema.parse(data).total
   },
 
   async getById(boardId: string, id: string): Promise<Task> {
