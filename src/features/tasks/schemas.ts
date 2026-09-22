@@ -218,7 +218,13 @@ export const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
  * bar. `tasksApi.list` subtracts one for Spring.
  */
 export const taskSearchSchema = z.object({
-  filter: taskFilterSchema.catch('all').default('all'),
+  /**
+   * Defaults to `not_done` rather than `all`: opening a board is a question
+   * about what is left to do, so the list arrives already narrowed to TODO and
+   * IN_PROGRESS — `?filter=` absent or malformed both land there. The tabs still
+   * switch it, and `?filter=all` remains a valid, linkable view.
+   */
+  filter: taskFilterSchema.catch('not_done').default('not_done'),
   q: z.string().trim().catch('').default(''),
   /**
    * Absent means "any priority". It stays optional rather than gaining an

@@ -54,7 +54,8 @@ export function BoardCard({ board, onEdit, onArchive }: Props) {
               to="/boards/$boardId"
               params={{ boardId: board.id }}
               search={{
-                filter: 'all',
+                // Matches the route's own default — a board opens on what is left to do.
+                filter: 'not_done',
                 q: '',
                 sort: 'created_desc',
                 page: 1,

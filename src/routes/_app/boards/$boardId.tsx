@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { createFileRoute, Link, notFound, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, notFound, useLocation, useNavigate } from '@tanstack/react-router'
 import axios from 'axios'
 import { Archive, ChevronLeft, Pencil, Plus } from 'lucide-react'
 import { z } from 'zod'
@@ -74,9 +74,31 @@ function BoardDetailRoute() {
   return <BoardDetailPage key={boardId} boardId={boardId} />
 }
 
+/**
+ * The filters that always appear in the address bar, defaults included.
+ *
+ * `priority` and `dueOnOrBefore` are deliberately not here: "any priority" and
+ * "any due date" are the absence of the parameter, so spelling them out would
+ * mean inventing an `ALL` value the backend has no equivalent for.
+ */
+const URL_FILTER_KEYS = ['filter', 'q', 'sort', 'page', 'size'] as const
+
 function BoardDetailPage({ boardId }: { boardId: string }) {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
+  const searchStr = useLocation({ select: (location) => location.searchStr })
+
+  /**
+   * Write the resolved view back into the URL, so arriving at a bare
+   * `/boards/:id` leaves an address that states every filter it is showing
+   * rather than relying on defaults nobody can see. Replaces rather than
+   * pushes: it is the same view, not a step the Back button should undo.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(searchStr)
+    if (URL_FILTER_KEYS.every((key) => params.has(key))) return
+    void navigate({ search: (previous) => previous, replace: true })
+  }, [searchStr, navigate])
 
   const [searchInput, setSearchInput] = useState(search.q)
   /**
