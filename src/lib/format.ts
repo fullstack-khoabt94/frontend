@@ -14,6 +14,19 @@ export function isOverdue(iso: string | null | undefined) {
   return isPast(date) && !isToday(date)
 }
 
+/**
+ * A plain calendar date, for timestamps that are context rather than a
+ * deadline — "Created 3 Feb 2026".
+ *
+ * Deliberately not `formatDueDate`: that one answers "how soon" and resolves to
+ * Today / Tomorrow, which reads as urgency. A `createdAt` is never urgent, and
+ * "Created Today" beside a tag would be noise.
+ */
+export function formatDate(iso: string | null | undefined) {
+  if (!iso) return null
+  return format(new Date(iso), 'd MMM yyyy')
+}
+
 export function initialsOf(name: string) {
   return name
     .split(' ')

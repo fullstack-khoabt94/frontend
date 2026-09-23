@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AuthRouteImport } from './routes/_auth'
+import { Route as AppTagsRouteImport } from './routes/_app/tags'
 import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as AuthForgotPasswordRouteImport } from './routes/_auth/forgot-password'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
@@ -32,6 +33,11 @@ const AppRoute = AppRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/_auth',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppTagsRoute = AppTagsRouteImport.update({
+  id: '/tags',
+  path: '/tags',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppTasksRoute = AppTasksRouteImport.update({
   id: '/tasks',
@@ -71,6 +77,7 @@ const AppBoardsBoardIdRoute = AppBoardsBoardIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/tags': typeof AppTagsRoute
   '/tasks': typeof AppTasksRoute
   '/forgot-password': typeof AuthForgotPasswordRoute
   '/login': typeof AuthLoginRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/tags': typeof AppTagsRoute
   '/tasks': typeof AppTasksRoute
   '/forgot-password': typeof AuthForgotPasswordRoute
   '/login': typeof AuthLoginRoute
@@ -94,6 +102,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
+  '/_app/tags': typeof AppTagsRoute
   '/_app/tasks': typeof AppTasksRoute
   '/_auth/forgot-password': typeof AuthForgotPasswordRoute
   '/_auth/login': typeof AuthLoginRoute
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/tags'
     | '/tasks'
     | '/forgot-password'
     | '/login'
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/tags'
     | '/tasks'
     | '/forgot-password'
     | '/login'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_app'
     | '/_auth'
+    | '/_app/tags'
     | '/_app/tasks'
     | '/_auth/forgot-password'
     | '/_auth/login'
@@ -165,6 +177,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/tags': {
+      id: '/_app/tags'
+      path: '/tags'
+      fullPath: '/tags'
+      preLoaderRoute: typeof AppTagsRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/tasks': {
       id: '/_app/tasks'
@@ -219,12 +238,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppTagsRoute: typeof AppTagsRoute
   AppTasksRoute: typeof AppTasksRoute
   AppBoardsBoardIdRoute: typeof AppBoardsBoardIdRoute
   AppBoardsIndexRoute: typeof AppBoardsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppTagsRoute: AppTagsRoute,
   AppTasksRoute: AppTasksRoute,
   AppBoardsBoardIdRoute: AppBoardsBoardIdRoute,
   AppBoardsIndexRoute: AppBoardsIndexRoute,

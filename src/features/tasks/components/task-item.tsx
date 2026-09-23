@@ -22,10 +22,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { BOARD_COLOR_META } from '@/features/boards/constants'
 import { DEFAULT_BOARD_ICON, type Board } from '@/features/boards/schemas'
+import { TagChip } from '@/features/tags/components/tag-chip'
 import { formatDueDate, isOverdue } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { STATUS_META } from '../constants'
-import { TASK_STATUSES, type Task, type TaskStatus } from '../schemas'
+import { sortTags, TASK_STATUSES, type Task, type TaskStatus } from '../schemas'
 import { PriorityBadge, StatusBadge } from './status-badge'
 
 type Props = {
@@ -120,6 +121,14 @@ export function TaskItem({ task, onEdit, onDelete, onStatusChange, isMutating, b
               {overdue ? `Overdue · ${due}` : due}
             </span>
           )}
+          {/* Sorted rather than rendered in arrival order: `TaskResponse.tags`
+              is a `Set`, so two fetches of the same task can hand back the same
+              chips in a different order and the row would reshuffle for no
+              visible reason. Read-only here — a row is not where a task's tags
+              are edited; the dialog is. */}
+          {sortTags(task.tags).map((tag) => (
+            <TagChip key={tag.id} tag={tag} />
+          ))}
         </div>
       </div>
 
