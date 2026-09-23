@@ -33,10 +33,11 @@ export function AppHeader() {
           <Logo />
         </Link>
 
-        {/* One destination: task lists are nested under a board, so there is no
-            cross-board list to link to any more. `activeProps` comes from the
-            router, so the highlight follows the URL rather than a duplicated
-            piece of state. */}
+        {/* Two destinations. Task lists are nested under a board, so there is
+            still no cross-board task list to link to — but tags are user-scoped
+            rather than board-scoped, so the library is a top-level screen of its
+            own. `activeProps` comes from the router, so the highlight follows
+            the URL rather than a duplicated piece of state. */}
         <nav aria-label="Main" className="flex items-center gap-1">
           <Link
             to="/boards"
@@ -45,6 +46,14 @@ export function AppHeader() {
             activeProps={{ className: 'bg-secondary text-secondary-foreground' }}
           >
             Boards
+          </Link>
+          <Link
+            to="/tags"
+            search={{ q: '' }}
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            activeProps={{ className: 'bg-secondary text-secondary-foreground' }}
+          >
+            Tags
           </Link>
         </nav>
 

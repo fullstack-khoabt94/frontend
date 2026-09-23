@@ -23,6 +23,39 @@ function toLocalDateTime(date: string | undefined) {
   return date ? `${date}T00:00:00` : null
 }
 
+/**
+ * The tags, in the shape both task DTOs actually declare.
+ *
+ * `CreateTaskDto` and `UpdateTaskDto` type this field as `Set<Tag>` — the JPA
+ * **entity**, not a DTO and not a list of ids — so Jackson binds each object to
+ * a `Tag` and Hibernate writes a `task_tags` row from its `id`. Three
+ * consequences the client has to live with:
+ *
+ * - **`id` is mandatory.** `@ManyToMany` does not cascade PERSIST, so a tag
+ *   arriving without one is transient and the save fails with
+ *   `TransientObjectException`. Every tag here comes from `GET /tag/all`, so it
+ *   always has one.
+ * - **The other fields are sent but never written.** No cascade means Hibernate
+ *   reads the id and ignores the rest; they are included because a bare
+ *   `{ id }` relies on that being true, and the timestamps are dropped because
+ *   they are the only fields whose format could fail to bind.
+ * - **Ownership is not checked server-side.** `TaskServiceImpl` calls
+ *   `setTags(dto.tags())` without verifying that each tag's owner is the caller,
+ *   so the API would happily attach another user's tag by id. The client only
+ *   ever offers tags from `GET /tag/all`, which is scoped to the principal, so
+ *   nothing wrong is sent from here — but this is a client-side constraint on a
+ *   server-side hole, not a fix for it. The fix is `Set<UUID> tagIds` plus an
+ *   ownership check in the service.
+ */
+function toTagPayload(tags: TaskFormValues['tags']) {
+  return tags.map((tag) => ({
+    id: tag.id,
+    title: tag.title,
+    description: tag.description,
+    color: tag.color,
+  }))
+}
+
 /** Fields common to CreateTaskDto and UpdateTaskDto. */
 function toPayload(values: TaskFormValues) {
   return {
@@ -31,6 +64,16 @@ function toPayload(values: TaskFormValues) {
     status: values.status,
     priority: values.priority,
     dueDate: toLocalDateTime(values.dueDate),
+    /**
+     * **Always an array, never `null` or omitted.** `tags` is `@Nullable` on
+     * both DTOs and `TaskServiceImpl` assigns it straight through with
+     * `setTags(dto.tags())`, which overwrites the entity's initialised
+     * `HashSet` with `null`. `TaskResponse.fromTask` then calls
+     * `task.getTags().stream()` on it — an NPE, and a 500 on the most ordinary
+     * request there is: creating a task with no tags. Sending `[]` is what
+     * keeps that path from ever being taken.
+     */
+    tags: toTagPayload(values.tags),
   }
 }
 

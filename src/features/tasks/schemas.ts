@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { tagSchema } from '@/features/tags/schemas'
 import { htmlToPlainText } from '@/lib/rich-text'
 
 /**
@@ -43,8 +44,38 @@ export const taskSchema = z.object({
    */
   createdAt: z.string(),
   updatedAt: z.string(),
+  /**
+   * The tags on this task, embedded in the response rather than fetched
+   * separately — `TaskResponse` carries `Set<TagResponse>`.
+   *
+   * **A `Set` on the wire is a JSON array with no guaranteed order.** `Task.tags`
+   * is a `@ManyToMany` `Set` with no `@OrderBy`, so the order is whatever the
+   * join returns and it can differ between two reads of the same task. Anything
+   * that renders these sorts them itself — see `sortTags`.
+   *
+   * Defaulted rather than required: a task created before tags existed, or one
+   * whose `tags` came back `null`, must render with no chips rather than
+   * failing the parse and blanking the whole page.
+   */
+  tags: z
+    .array(tagSchema)
+    .nullish()
+    .catch(null)
+    .default([])
+    .transform((tags) => tags ?? []),
 })
 export type Task = z.infer<typeof taskSchema>
+
+/**
+ * Tags in a stable, readable order.
+ *
+ * The backend hands back an unordered `Set`, so without this the chips on a row
+ * could reshuffle between two fetches of the same task — movement the reader
+ * cannot explain. Sorted by name, matching the tag library's own order.
+ */
+export function sortTags<T extends { title: string }>(tags: T[]): T[] {
+  return [...tags].sort((a, b) => a.title.localeCompare(b.title))
+}
 
 /**
  * Mirrors `com.eazybytes.dtos.PagedResponse<T>`.
@@ -121,6 +152,20 @@ export const taskFormSchema = z.object({
     .string()
     .optional()
     .refine((value) => !value || isFutureDate(value), 'Due date must be in the future'),
+  /**
+   * Whole tags, not ids.
+   *
+   * That is the backend's shape, not a convenience: `CreateTaskDto` and
+   * `UpdateTaskDto` both declare `Set<Tag>` — the JPA **entity** — so the
+   * payload has to carry objects Jackson can bind to one. `tasksApi` trims each
+   * down to the fields that matter; see the note there, including what this
+   * costs in ownership checking.
+   *
+   * Holding the objects here rather than ids also keeps the picker and the
+   * chips rendering straight from form state, with no lookup against the tag
+   * list on every keystroke.
+   */
+  tags: z.array(tagSchema).default([]),
 })
 export type TaskFormInput = z.input<typeof taskFormSchema>
 export type TaskFormValues = z.output<typeof taskFormSchema>
@@ -134,6 +179,10 @@ export function taskToFormValues(task: Task): TaskFormValues {
     status: task.status,
     priority: task.priority,
     dueDate: task.dueDate ? task.dueDate.slice(0, 10) : undefined,
+    // Load-bearing for the status toggle: `useUpdateTaskStatus` rebuilds the
+    // whole task from this, and a PUT is a full replace — dropping the tags
+    // here would strip them off the task every time a checkbox is ticked.
+    tags: task.tags,
   }
 }
 

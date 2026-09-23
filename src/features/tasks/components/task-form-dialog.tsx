@@ -22,9 +22,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { Board } from '@/features/boards/schemas'
+import { TagSelect } from '@/features/tags/components/tag-select'
+import { useCreateTag, useTagList } from '@/features/tags/queries'
 import { PRIORITY_META, STATUS_META } from '../constants'
 import {
   earliestDueDate,
+  sortTags,
   TASK_PRIORITIES,
   TASK_STATUSES,
   taskFormSchema,
@@ -41,6 +44,7 @@ function emptyValues(boardId: string): TaskFormInput {
     status: 'TODO',
     priority: 'MEDIUM',
     dueDate: '',
+    tags: [],
   }
 }
 
@@ -52,6 +56,9 @@ function toFormValues(task: Task, fallbackBoardId: string): TaskFormInput {
     status: task.status,
     priority: task.priority,
     dueDate: task.dueDate ? task.dueDate.slice(0, 10) : '',
+    // Sorted on the way in: the response is a `Set`, so the order it arrives in
+    // is not stable between reads.
+    tags: sortTags(task.tags),
   }
 }
 
@@ -92,6 +99,13 @@ export function TaskFormDialog({
   // Archived boards stay selectable only if the task is already in one, so the
   // picker never silently drops the value it was given.
   const options = (boards ?? []).filter((board) => !board.isArchived || board.id === task?.boardId)
+
+  /**
+   * The tag library, fetched once and shared with `/tags` through the same
+   * query key — opening this dialog after visiting that screen costs nothing.
+   */
+  const tagList = useTagList()
+  const createTag = useCreateTag()
 
   const form = useForm<TaskFormInput, unknown, TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
@@ -259,10 +273,35 @@ export function TaskFormDialog({
                   aria-invalid={Boolean(form.formState.errors.dueDate)}
                   {...form.register('dueDate')}
                 />
-                <FieldDescription>
-                  Optional — leave empty for no deadline. Must be a future date.
-                </FieldDescription>
                 <FieldError errors={[form.formState.errors.dueDate]} />
+              </Field>
+
+              {/* Metadata, so it belongs in this column alongside status,
+                  priority and the due date rather than beside the prose on the
+                  left. The picker is built for a narrow column: the trigger
+                  grows to fit its chips instead of clipping them, and the
+                  popover takes the trigger's width. */}
+              <Field>
+                <FieldLabel htmlFor="task-tags">Tags</FieldLabel>
+                <Controller
+                  control={form.control}
+                  name="tags"
+                  render={({ field }) => (
+                    <TagSelect
+                      id="task-tags"
+                      value={field.value ?? []}
+                      onChange={field.onChange}
+                      options={tagList.tags}
+                      isLoading={tagList.isPending}
+                      // Creating from here is offered; deleting is not — see the
+                      // note on `TagSelect`. A tag removed here only leaves this
+                      // task, and stays in the library.
+                      allowCreate
+                      isCreating={createTag.isPending}
+                      onCreate={(values) => createTag.mutateAsync(values)}
+                    />
+                  )}
+                />
               </Field>
             </FieldGroup>
           </div>

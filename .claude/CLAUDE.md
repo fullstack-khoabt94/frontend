@@ -34,6 +34,13 @@ The UI must support exactly this feature set:
 - Delete a board
 - Open a board and manage its tasks
 
+**Tags**
+
+- Create a tag
+- Update a tag
+- **Delete** a tag (a real delete, unlike boards)
+- Attach / detach tags on a task, and create one without leaving the task form
+
 **Account**
 
 - Login
@@ -63,6 +70,7 @@ Mirrors the backend `TaskResponse` exactly.
 | `boardId`     | `string \| null`                    | Board it belongs to — see below             |
 | `createdAt`   | `string`                            | Local date-time; the default sort           |
 | `updatedAt`   | `string`                            | Local date-time                             |
+| `tags`        | `Tag[]`                             | Embedded, **unordered** — see below         |
 
 **There is no `userId`.** `TaskResponse` dropped it when ownership moved to the board; a task
 reaches its owner through `task.board.user`. Nothing on the client needed it.
@@ -81,6 +89,70 @@ no `Z`, no offset. Sending an `Instant`-style UTC string fails to parse
 
 The backend validates `dueDate` with `@Future`, and midnight today is already past, so
 only tomorrow onwards is accepted. The form enforces the same rule client-side.
+
+### Tag
+
+Mirrors `TagResponse` exactly.
+
+| Field         | Type             | Notes                                          |
+| ------------- | ---------------- | ---------------------------------------------- |
+| `id`          | `string`         | Server-generated UUID                          |
+| `title`       | `string`         | Required, 1–50 chars (the column, not the DTO) |
+| `description` | `string \| null` | **Required on write** (`@NotBlank`)            |
+| `color`       | `string`         | One of six accent names                        |
+| `createdAt`   | `string`         | Local date-time                                |
+| `updatedAt`   | `string`         | Local date-time                                |
+
+**There is no `userId`.** `TagResponse` does not expose one; ownership is enforced
+server-side by `TagServiceImpl.getValidTag` against the `@AuthenticationPrincipal`.
+
+**Tags are user-scoped, not board-scoped.** `Tag.user` points straight at the owner, so one
+tag can sit on tasks in any board — which is why `/tags` is a top-level screen next to
+`/boards` rather than living inside one. Tasks, by contrast, are board-scoped. That mismatch
+is the source of the ownership gap in section 6.
+
+**`title` is unique per user, case-insensitively.** V6 declares
+`unique index user_title_index on tags (user_id, lower(title))`. `isDuplicateTagTitle` in
+`features/tags/schemas.ts` pre-empts it wherever the tag list is in hand — not as the guard
+(the index is, and a second tab can still win the race) but for the message: the backend's
+`DataIntegrityViolationException` handler returns `ex.getMessage()` verbatim, which is raw
+Postgres naming the index and the offending key. Catching it client-side turns that into a
+field error.
+
+**Title caps at 50 and description is required**, both for the same reasons boards do:
+`tags.title` is `varchar(50)` while the DTOs validate `@Size(max = 120)`, and both DTOs mark
+description `@NotBlank`.
+
+**`color` reuses the `--board-*` tokens** rather than declaring `--tag-*` twins of the same
+six values — a tag chip and a board chip sit side by side on a task row. The enums are still
+separate (`TAG_COLORS` vs `BOARD_COLORS`), so tags can diverge later; `TAG_COLOR_META` in
+`features/tags/constants.ts` is the only file that would change.
+
+### Deleting a tag is a hard delete, and it cascades
+
+`DELETE /tag/{id}` really removes the row — `TagServiceImpl.deleteTag` calls
+`tagRepository.delete`, there is no `isArchived` on tags and nothing to flip. V6's
+`ON DELETE CASCADE` on `task_tags` then strips the tag off **every task that carried it**.
+
+This is the opposite of boards, deliberately, and it shapes two things:
+
+- `DeleteTagDialog` states the cascade outright. The count of affected tasks is **not**
+  shown, because no endpoint reports it: `TagResponse` carries no task count and the task
+  list is board-scoped and paginated, so the only honest number would cost a request per
+  board. "Every task that carries it" is true at any count.
+- **`TagSelect` offers create but not delete.** Removing a tag from _this_ task is local and
+  reversible; deleting is global and permanent, and in a picker the two controls would sit
+  adjacent and read almost identically. Deleting lives only on `/tags`, behind the confirm.
+
+### A task's tags arrive unordered
+
+`Task.tags` is a `@ManyToMany Set` with no `@OrderBy`, so `TaskResponse` serialises a JSON
+array whose order is whatever the join returned and can differ between two reads of the same
+task. Anything that renders them calls `sortTags` (`features/tasks/schemas.ts`) first —
+without it, the chips on a row reshuffle between fetches for no visible reason.
+
+`taskSchema` also defaults the field to `[]` rather than requiring it, so a task written
+before tags existed renders with no chips instead of failing the parse and blanking the page.
 
 ### Board
 
@@ -332,6 +404,7 @@ to `light`.
 /reset-password?token=…      ┘
 /boards?view&q                                    ┐
 /boards/$boardId?filter&q&priority&sort&page&size │ _app (requires a session)
+/tags?q                                           │
 /tasks → redirect: /boards                        ┘
 ```
 
@@ -343,6 +416,15 @@ request returns tasks from more than one board, and a cross-board page could onl
 assembled from one call per board — which is exactly the "load everything" the pagination
 exists to stop. The route file stays so old links land on `/boards` instead of a 404, and it
 carries the note on what to restore if a cross-board endpoint ever appears.
+
+**`/tags` is top-level, not nested under a board.** Tags hang off the user, not the board
+(`Tag.user`), so one tag is reusable across every board — there is no board to nest the
+screen under. It is the second entry in the header nav for the same reason.
+
+The screen is a flat list rather than a grid: a tag is a name, a colour and a sentence, so a
+card would be mostly padding. Nothing on it is paginated or server-filtered — `GET /tag/all`
+takes no parameters — so `?q=` is a client-side view over one cached response, exactly like
+the board grid's search.
 
 **`/boards/$boardId` is the task list.** It owns `TaskFilterBar`, `TaskSummary`, `TaskItem`,
 `TaskPagination` and both dialogs under `taskSearchSchema`. There is only one task screen, so
@@ -446,6 +528,13 @@ src/
 │   │   ├── queries.ts
 │   │   ├── schemas.ts
 │   │   └── constants.ts    colour and view metadata
+│   ├── tags/
+│   │   ├── components/     tag-chip, tag-select (the combobox), tag-form-dialog,
+│   │   │                   delete-tag-dialog, tag-empty-state
+│   │   ├── api.ts
+│   │   ├── queries.ts      list/search hooks, mutations, cache keys
+│   │   ├── schemas.ts
+│   │   └── constants.ts    colour metadata
 │   └── tasks/
 │       ├── components/     task-item, dialogs, filter bar, summary, pagination,
 │       │                   empty states
@@ -639,6 +728,56 @@ flattened by `com.eazybytes.dtos.PagedResponse`. Notes that shape the client:
   the nullable `task.boardId`, which would build `/board//task/…` on a null.
 - `DELETE` answers `200` with a plain-text body; the client ignores both.
 
+### Tags — implemented; user-scoped, not nested
+
+| Method   | Path        | Request                         | Response     |
+| -------- | ----------- | ------------------------------- | ------------ |
+| `GET`    | `/tag/all`  | —                               | `200 Tag[]`  |
+| `GET`    | `/tag/{id}` | —                               | `200 Tag`    |
+| `POST`   | `/tag`      | `{ title, description, color }` | `201 Tag`    |
+| `PUT`    | `/tag/{id}` | same                            | `200 Tag`    |
+| `DELETE` | `/tag/{id}` | —                               | `200 "Done"` |
+
+- **No `userId` in the body**, like boards — `TagController` reads the owner off the
+  `@AuthenticationPrincipal`.
+- **No parameters on `/tag/all`**, and **no `Sort`** either: `findByUserId` runs bare, so
+  Postgres may return the rows in any order and change its mind as they are updated.
+  `useTagList` sorts by name client-side; the library has to hold still for a reader.
+- **`DELETE` is a real delete and cascades** to `task_tags`. See section 2.
+- **Duplicate titles answer `400`**, not `409` — `GlobalExceptionHandler` maps
+  `DataIntegrityViolationException` to `BAD_REQUEST` and returns `ex.getMessage()`, which is
+  the raw Postgres text. The client pre-empts the common case rather than surfacing it.
+
+### Attaching tags to a task: the DTOs take entities, not ids
+
+This is the sharpest edge in the whole contract. `CreateTaskDto` and `UpdateTaskDto` declare
+`Set<Tag>` — the **JPA entity** — so the task payload carries whole tag objects that Jackson
+binds to `Tag` and Hibernate turns into `task_tags` rows. `toTagPayload` in
+`features/tasks/api.ts` is the one place that shape is built. Four consequences:
+
+- **`id` is mandatory on every tag sent.** `@ManyToMany` does not cascade PERSIST, so a tag
+  without one is transient and the save fails with `TransientObjectException`. Every tag the
+  client sends came from `GET /tag/all`, so it always has one — creating a tag inline goes
+  through `POST /tag` first and sends back the saved object.
+- **The other fields are ignored on write.** No cascade means Hibernate reads the id and
+  drops the rest. They are sent anyway rather than a bare `{ id }`, which would depend on
+  that staying true; the timestamps are omitted because they are the only fields whose
+  format could fail to bind.
+- **`tags` must always be an array, never `null` or omitted.** The field is `@Nullable` and
+  `TaskServiceImpl` assigns it straight through with `setTags(dto.tags())`, overwriting the
+  entity's initialised `HashSet` with `null`. `TaskResponse.fromTask` then calls
+  `task.getTags().stream()` on it — an NPE, and a **500 on the most ordinary request there
+  is**: creating a task with no tags. `toPayload` always sends `[]`, which is what keeps
+  that path from being taken. Do not "tidy" it into omitting an empty array.
+- **Ownership is not checked server-side.** `setTags(dto.tags())` never verifies that each
+  tag's owner is the caller, so the API would attach another user's tag by id. The client
+  only ever offers tags from `GET /tag/all`, which is scoped to the principal — but that is
+  a client-side constraint on a server-side hole, not a fix. See section 12.
+
+Because `PUT` is a full replace, `taskToFormValues` carries `tags` through. That is
+load-bearing for `useUpdateTaskStatus`, which rebuilds the whole task from it: dropping the
+tags there would strip them off the task every time a checkbox is ticked.
+
 ### Auth — signup and login are live
 
 | Method | Path                                 | Request                         | Response                                                   |
@@ -822,7 +961,8 @@ Rules that keep it working:
 
 - **Imports** use the `@/` alias, never `../../..`.
 - **Files** are kebab-case; components are PascalCase; hooks are `use-*`.
-- **Query keys** come from `taskKeys` / `boardKeys` — never write an inline array key.
+- **Query keys** come from `taskKeys` / `boardKeys` / `tagKeys` — never write an inline array
+  key.
   `taskKeys.list(params)` is keyed by the whole request — `(boardId, page, size, sort,
 filter, q, priority)` — because the server does the scoping now and two pages of one board,
   or two filters over it, are different responses. Mutations invalidate `taskKeys.all`, which
@@ -973,5 +1113,31 @@ npm run verify        # lint + typecheck + format:check (same gate as pre-push)
   `expiration-ms` default to `${JWT_SECRET:…}` / `${JWT_EXPIRATION_MS:…}` in
   `application.yml`, so setting either variable silently gives the refresh token the access
   token's secret and 1h lifetime — collapsing the two-token design back into one.
+- **A task can be given another user's tag.** `TaskServiceImpl` calls `setTags(dto.tags())`
+  without checking that each tag's owner is the caller, and the database cannot express the
+  rule either — tags are user-scoped while tasks are board-scoped, so there is no foreign key
+  that ties them. Nothing wrong is sent from this client (the picker only offers
+  `GET /tag/all`), but the endpoint is open to anyone with a tag UUID and curl. The fix is
+  backend-side: `Set<UUID> tagIds` on both DTOs, resolved and ownership-checked in the
+  service. The client would lose `toTagPayload` and send ids.
+- **Creating a task with no `tags` field 500s.** `setTags(null)` followed by
+  `getTags().stream()` in `TaskResponse.fromTask` is an NPE. The client always sends `[]` so
+  it never happens from here, but any other caller hits it immediately. One null check in
+  `TaskServiceImpl` fixes it.
+- **Tag titles are validated against the wrong limit server-side.** Both tag DTOs carry
+  `@Size(max = 120)` while `tags.title` is `varchar(50)`, so 51–120 characters clear
+  validation and then fail on the insert. The form holds 50, as boards' does, so the gap is
+  unreachable from this client.
+- **Tags cannot be filtered on.** `QueryTasksDto` has no tag parameter, so there is no way to
+  ask a board for "tasks tagged X" — the chips are display-only. This is the obvious next
+  backend change: a `tagIds` parameter plus a join predicate in `TaskSpecification`, and the
+  filter bar gains one more control.
+- **A task's tags come back unordered**, because `Task.tags` is a `Set` with no `@OrderBy`.
+  `sortTags` sorts by name on the client, so ordering is consistent but not the user's — tags
+  cannot be arranged by hand. Doing so needs a `position` column on `task_tags`, which means
+  the join has to become a real entity (`@EmbeddedId` + `@MapsId`) rather than a
+  `@ManyToMany`; it was considered and deliberately dropped as not worth it.
+- **No tag detail page.** `GET /tag/{id}` exists and `useTag` wraps it, but nothing calls
+  either — a tag's row already shows everything the endpoint returns.
 - No account/profile page — the header menu only offers logout.
 - No tests — the wiring is deliberately thin so it can be tested once the API is real.
