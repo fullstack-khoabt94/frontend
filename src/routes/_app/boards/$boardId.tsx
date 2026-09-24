@@ -156,7 +156,7 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
    * select but **not** the status tabs — a tab's own badge has to keep saying
    * how many rows it holds while a different tab is open.
    */
-  const stats = useTaskStats(boardId, search.q, search.priority, search.dueOnOrBefore)
+  const stats = useTaskStats(boardId, search.q, search.priority, search.dueOnOrBefore, search.tags)
   const createTask = useCreateTask(boardId)
   const updateTask = useUpdateTask(boardId)
   const updateStatus = useUpdateTaskStatus(boardId)
@@ -186,13 +186,17 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
    * deliberately ignore, so this is `isNarrowed` minus the tab.
    */
   const countsNarrowed =
-    Boolean(search.q) || Boolean(search.priority) || Boolean(search.dueOnOrBefore)
+    Boolean(search.q) ||
+    Boolean(search.priority) ||
+    Boolean(search.dueOnOrBefore) ||
+    Boolean(search.tags)
   /** True when the view shows a subset of the board rather than all of it. */
   const isNarrowed =
     Boolean(search.q) ||
     search.filter !== 'all' ||
     Boolean(search.priority) ||
-    Boolean(search.dueOnOrBefore)
+    Boolean(search.dueOnOrBefore) ||
+    Boolean(search.tags)
   /**
    * Only meaningful on the unnarrowed view, where `total` is every task in the
    * board. Under a filter it counts matches instead, so the header and the
@@ -377,10 +381,13 @@ function BoardDetailPage({ boardId }: { boardId: string }) {
               onPriorityChange={(priority) => changeSearch({ priority })}
               dueOnOrBefore={search.dueOnOrBefore}
               onDueChange={(dueOnOrBefore) => changeSearch({ dueOnOrBefore })}
+              tags={search.tags}
+              onTagsChange={(tags) => changeSearch({ tags })}
               onClearFilters={() =>
                 changeSearch({
                   priority: undefined,
                   dueOnOrBefore: undefined,
+                  tags: undefined,
                 })
               }
               sort={search.sort}

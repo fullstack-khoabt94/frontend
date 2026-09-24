@@ -120,6 +120,8 @@ type TaskQuery = {
    * default for the question being asked, and the control says so on screen.
    */
   dueOnOrBefore?: string
+  /** Tag ids, matched with OR. Sent as repeated `tags=` params. */
+  tags?: string[]
 }
 
 /**
@@ -130,12 +132,13 @@ type TaskQuery = {
  * the same way (`StringUtils.hasText`, a null check), but an absent one keeps
  * the URL and the React Query key clean.
  */
-function toQueryParams({ filter, q, priority, dueOnOrBefore }: TaskQuery) {
+function toQueryParams({ filter, q, priority, dueOnOrBefore, tags }: TaskQuery) {
   return {
     statuses: FILTER_STATUSES[filter],
     search: q || undefined,
     priority,
     dueOnOrBefore,
+    tags: tags?.length ? tags : undefined,
   }
 }
 
@@ -161,6 +164,7 @@ export type TaskCountParams = {
   q: string
   priority?: TaskPriority
   dueOnOrBefore?: string
+  tags?: string[]
 }
 
 export const tasksApi = {
@@ -194,7 +198,14 @@ export const tasksApi = {
    * call. Crude, but honest: the number comes from the database rather than from
    * counting the rows that happen to be on screen.
    */
-  async count({ boardId, status, q, priority, dueOnOrBefore }: TaskCountParams): Promise<number> {
+  async count({
+    boardId,
+    status,
+    q,
+    priority,
+    dueOnOrBefore,
+    tags,
+  }: TaskCountParams): Promise<number> {
     const { data } = await api.get(`${taskPath(boardId)}/all`, {
       params: {
         page: 0,
@@ -203,6 +214,7 @@ export const tasksApi = {
         search: q || undefined,
         priority,
         dueOnOrBefore,
+        tags: tags?.length ? tags : undefined,
       },
       paramsSerializer: REPEAT_ARRAY_PARAMS,
     })

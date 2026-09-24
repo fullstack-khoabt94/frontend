@@ -31,6 +31,7 @@ import {
   type TaskStats,
 } from '../schemas'
 import { PriorityIcon } from './priority-icon'
+import { TagFilter } from './tag-filter'
 
 /**
  * Stands in for "no priority filter" inside the select.
@@ -52,7 +53,10 @@ type Props = {
   /** `yyyy-MM-dd`, or undefined for no deadline filter. */
   dueOnOrBefore?: string
   onDueChange: (date: string | undefined) => void
-  /** Resets priority and due date in one navigation. */
+  /** Selected tag ids, or undefined for no tag filter. */
+  tags?: string[]
+  onTagsChange: (tags: string[] | undefined) => void
+  /** Resets priority, due date and tags in one navigation. */
   onClearFilters: () => void
   sort: TaskSort
   onSortChange: (sort: TaskSort) => void
@@ -75,6 +79,8 @@ export function TaskFilterBar({
   onPriorityChange,
   dueOnOrBefore,
   onDueChange,
+  tags,
+  onTagsChange,
   onClearFilters,
   sort,
   onSortChange,
@@ -85,10 +91,11 @@ export function TaskFilterBar({
    * dot on its button. Sort is left out — it reorders, it does not hide
    * anything — and so is status, whose tabs stay on screen.
    */
-  const activeFilterCount = Number(Boolean(priority)) + Number(Boolean(dueOnOrBefore))
+  const activeFilterCount =
+    Number(Boolean(priority)) + Number(Boolean(dueOnOrBefore)) + Number(Boolean(tags?.length))
 
   /**
-   * The three filters, drawn once and placed twice: inline in the row from
+   * The four filters, drawn once and placed twice: inline in the row from
    * `sm`, stacked in the sheet on phones. `inline` only switches the fixed
    * `lg` widths on.
    */
@@ -153,6 +160,12 @@ export function TaskFilterBar({
           ))}
         </SelectContent>
       </Select>
+
+      <TagFilter
+        value={tags}
+        onChange={onTagsChange}
+        className={cn('w-full min-w-0', inline && 'lg:w-40')}
+      />
 
       <Select value={sort} onValueChange={(value) => onSortChange(value as TaskSort)}>
         <SelectTrigger
@@ -256,9 +269,9 @@ export function TaskFilterBar({
           </Sheet>
         </div>
 
-        {/* From `sm`: three columns, then fixed widths beside the search box
-            from `lg`. */}
-        <div className="hidden grid-cols-3 gap-3 sm:grid lg:flex lg:flex-row">
+        {/* From `sm`: two columns, four from `md`, fixed widths beside the
+            search box from `lg`. */}
+        <div className="hidden grid-cols-2 gap-3 sm:grid md:grid-cols-4 lg:flex lg:flex-row">
           {renderFilters(true)}
         </div>
       </div>
