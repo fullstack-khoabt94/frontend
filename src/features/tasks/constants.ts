@@ -8,6 +8,16 @@ type StatusMeta = {
   badge: string
   /** Accent colour used for the left rail of a task row. */
   rail: string
+  /**
+   * Solid fill for the status pill on a task row, which carries white text.
+   * The `dark:` pair overrides `SelectTrigger`'s own dark background.
+   */
+  solid: string
+  /**
+   * Text colour for the icon and label inside a select item — important for
+   * the same reason as `PRIORITY_META.tone`.
+   */
+  tone: string
   /** Label of the button that moves a task *into* this status. */
   action: string
 }
@@ -18,6 +28,9 @@ export const STATUS_META: Record<TaskStatus, StatusMeta> = {
     icon: Circle,
     badge: 'bg-status-todo-soft text-status-todo border-status-todo/20',
     rail: 'bg-status-todo/35',
+    solid:
+      'bg-status-todo/70 hover:bg-status-todo/60 dark:bg-status-todo/70 dark:hover:bg-status-todo/60',
+    tone: 'text-status-todo!',
     action: 'Move to to do',
   },
   IN_PROGRESS: {
@@ -25,6 +38,9 @@ export const STATUS_META: Record<TaskStatus, StatusMeta> = {
     icon: Timer,
     badge: 'bg-status-progress-soft text-status-progress border-status-progress/25',
     rail: 'bg-status-progress',
+    solid:
+      'bg-status-progress dark:bg-status-progress dark:hover:bg-status-progress/90 hover:bg-status-progress/90',
+    tone: 'text-status-progress!',
     action: 'Start progress',
   },
   DONE: {
@@ -32,41 +48,51 @@ export const STATUS_META: Record<TaskStatus, StatusMeta> = {
     icon: CheckCircle2,
     badge: 'bg-status-done-soft text-status-done border-status-done/25',
     rail: 'bg-status-done',
+    solid:
+      'bg-status-done dark:bg-status-done dark:hover:bg-status-done/90 hover:bg-status-done/90',
+    tone: 'text-status-done!',
     action: 'Mark as done',
   },
 }
 
-export const PRIORITY_META: Record<TaskPriority, { label: string; badge: string; dot: string }> = {
+export const PRIORITY_META: Record<
+  TaskPriority,
+  {
+    label: string
+    badge: string
+    /**
+     * Colour of `PriorityIcon`: one red, deepening with the level. Marked
+     * important (`!`) because `SelectItem` recolours every descendant on
+     * focus, and the priority colour should survive hover and keyboard focus.
+     * Kept literal so Tailwind can see it — a class built at runtime is not
+     * generated.
+     */
+    tone: string
+  }
+> = {
   LOW: {
     label: 'Low',
     badge: 'text-muted-foreground border-border',
-    dot: 'bg-muted-foreground/50',
+    tone: 'text-destructive/40!',
   },
   MEDIUM: {
     label: 'Medium',
     badge: 'text-brand-700 border-brand-200 dark:text-brand-200',
-    dot: 'bg-brand-500',
+    tone: 'text-destructive/70!',
   },
-  HIGH: { label: 'High', badge: 'text-destructive border-destructive/30', dot: 'bg-destructive' },
+  HIGH: {
+    label: 'High',
+    badge: 'text-destructive border-destructive/30',
+    tone: 'text-destructive!',
+  },
 }
 
-export const FILTER_META: Record<
-  TaskFilter,
-  { label: string; shortLabel: string; description: string }
-> = {
-  all: { label: 'All tasks', shortLabel: 'All', description: 'Everything in your list.' },
-  not_done: {
-    label: 'Not done',
-    shortLabel: 'Not done',
-    description: 'To do and in progress combined.',
-  },
-  todo: { label: 'To do', shortLabel: 'To do', description: 'Not started yet.' },
-  in_progress: {
-    label: 'In progress',
-    shortLabel: 'In progress',
-    description: 'Currently being worked on.',
-  },
-  done: { label: 'Done', shortLabel: 'Done', description: 'Completed tasks.' },
+export const FILTER_META: Record<TaskFilter, { label: string; shortLabel: string }> = {
+  all: { label: 'All tasks', shortLabel: 'All' },
+  not_done: { label: 'Not done', shortLabel: 'Not done' },
+  todo: { label: 'To do', shortLabel: 'To do' },
+  in_progress: { label: 'In progress', shortLabel: 'In progress' },
+  done: { label: 'Done', shortLabel: 'Done' },
 }
 
 /**

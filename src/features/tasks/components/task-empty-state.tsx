@@ -55,7 +55,7 @@ export function TaskEmptyState({
       </div>
       <Button size="lg" onClick={onCreate}>
         <Plus className="size-4" />
-        New task
+        Task
       </Button>
     </div>
   )

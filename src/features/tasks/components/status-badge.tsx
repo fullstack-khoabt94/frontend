@@ -2,6 +2,7 @@ import { cn } from '@/lib/utils'
 import { STATUS_META } from '../constants'
 import { PRIORITY_META } from '../constants'
 import type { TaskPriority, TaskStatus } from '../schemas'
+import { PriorityIcon } from './priority-icon'
 
 export function StatusBadge({ status, className }: { status: TaskStatus; className?: string }) {
   const meta = STATUS_META[status]
@@ -36,7 +37,7 @@ export function PriorityBadge({
         className,
       )}
     >
-      <span className={cn('size-1.5 rounded-full', meta.dot)} />
+      <PriorityIcon priority={priority} />
       {meta.label}
     </span>
   )

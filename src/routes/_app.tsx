@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 import { AppHeader } from '@/components/layout/app-header'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 /**
  * Pathless layout for everything behind authentication.
@@ -15,10 +16,16 @@ export const Route = createFileRoute('/_app')({
 })
 
 function AppLayout() {
+  // `overflow-x-clip`, not `hidden`: it trims full-bleed backdrops (the board's
+  // sticky filters) without becoming a scroll container, which would break
+  // every `position: sticky` below it.
   return (
-    <div className="min-h-svh bg-background">
-      <AppHeader />
-      <Outlet />
+    <div className="min-h-svh overflow-x-clip bg-background">
+      {/* One provider for every tooltip in the app — Radix requires it. */}
+      <TooltipProvider delayDuration={200}>
+        <AppHeader />
+        <Outlet />
+      </TooltipProvider>
     </div>
   )
 }

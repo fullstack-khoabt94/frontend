@@ -93,7 +93,7 @@ function BoardsPage() {
         </div>
         <Button size="lg" className="h-10 shrink-0" onClick={openCreate}>
           <Plus className="size-4" />
-          New board
+          Board
         </Button>
       </div>
 

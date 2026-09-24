@@ -1,4 +1,4 @@
-import { CalendarClock, Flag, Search, SlidersHorizontal, X } from 'lucide-react'
+import { CalendarClock, Flag, ListFilter, Search, SlidersHorizontal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -8,7 +8,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { FILTER_META, PRIORITY_META, SORT_META } from '../constants'
 import {
@@ -20,6 +30,8 @@ import {
   type TaskSort,
   type TaskStats,
 } from '../schemas'
+import { PriorityIcon } from './priority-icon'
+import { TagFilter } from './tag-filter'
 
 /**
  * Stands in for "no priority filter" inside the select.
@@ -41,6 +53,11 @@ type Props = {
   /** `yyyy-MM-dd`, or undefined for no deadline filter. */
   dueOnOrBefore?: string
   onDueChange: (date: string | undefined) => void
+  /** Selected tag ids, or undefined for no tag filter. */
+  tags?: string[]
+  onTagsChange: (tags: string[] | undefined) => void
+  /** Resets priority, due date and tags in one navigation. */
+  onClearFilters: () => void
   sort: TaskSort
   onSortChange: (sort: TaskSort) => void
   stats?: TaskStats
@@ -62,59 +79,139 @@ export function TaskFilterBar({
   onPriorityChange,
   dueOnOrBefore,
   onDueChange,
+  tags,
+  onTagsChange,
+  onClearFilters,
   sort,
   onSortChange,
   stats,
 }: Props) {
-  return (
-    <div className="space-y-4">
-      {/* Four controls do not fit on one line at 640 — the search box would be
-          squeezed to a few characters — so they drop onto their own row until
-          `lg`. The status strip below is unchanged and still the tightest thing
-          in the layout. */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search task titles…"
-            aria-label="Search tasks"
-            className="h-10 pr-9 pl-9"
-          />
-          {search && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Clear search"
-              onClick={() => onSearchChange('')}
-              className="absolute top-1/2 right-1.5 -translate-y-1/2"
-            >
-              <X className="size-3.5" />
-            </Button>
-          )}
-        </div>
+  /**
+   * Filters hidden in the phone's sheet that are narrowing the list, for the
+   * dot on its button. Sort is left out — it reorders, it does not hide
+   * anything — and so is status, whose tabs stay on screen.
+   */
+  const activeFilterCount =
+    Number(Boolean(priority)) + Number(Boolean(dueOnOrBefore)) + Number(Boolean(tags?.length))
 
-        <div className="flex flex-col gap-3 sm:flex-row">
-          {/* A native date input rather than a calendar popover, matching the
-              task form's own due-date field — one date idiom in the app, and
-              `yyyy-MM-dd` is already the wire format the backend wants. */}
-          <div className="relative flex-1 sm:w-44 sm:flex-none">
-            <CalendarClock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+  /**
+   * The four filters, drawn once and placed twice: inline in the row from
+   * `sm`, stacked in the sheet on phones. `inline` only switches the fixed
+   * `lg` widths on.
+   */
+  const renderFilters = (inline: boolean) => (
+    <>
+      <div className={cn('relative min-w-0', inline && 'lg:w-44 lg:flex-none')}>
+        <CalendarClock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="date"
+          value={dueOnOrBefore ?? ''}
+          onChange={(event) => onDueChange(event.target.value || undefined)}
+          aria-label="Show tasks due on or before"
+          title="Due on or before"
+          className={cn('bg-white dark:bg-input/30 h-10 pl-9', dueOnOrBefore && 'pr-9')}
+        />
+        {dueOnOrBefore && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Clear due date filter"
+            onClick={() => onDueChange(undefined)}
+            className="absolute top-1/2 right-1.5 -translate-y-1/2"
+          >
+            <X className="size-3.5" />
+          </Button>
+        )}
+      </div>
+
+      <Select
+        value={priority ?? ANY_PRIORITY}
+        onValueChange={(value) =>
+          onPriorityChange(value === ANY_PRIORITY ? undefined : (value as TaskPriority))
+        }
+      >
+        <SelectTrigger
+          // `SelectTrigger` sets its height as `data-[size=default]:h-8`. A
+          // plain `h-10` carries no variant, so tailwind-merge keeps both and
+          // the data-attribute selector wins on specificity — the control
+          // silently stays 32px beside a 40px input. Matching the variant is
+          // what overrides it, here and on every other trigger in the app.
+          className={cn(
+            'w-full min-w-0 bg-white data-[size=default]:h-10 dark:bg-input/30',
+            inline && 'lg:w-40 lg:flex-none',
+          )}
+          aria-label="Filter tasks by priority"
+        >
+          {/* Each item carries its own marker, and `SelectValue` mirrors the
+              chosen item — so the trigger shows the flag for "any" and the
+              coloured chevrons for a real priority, never both. */}
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ANY_PRIORITY}>
+            <Flag className="text-muted-foreground!" />
+            Any priority
+          </SelectItem>
+          {TASK_PRIORITIES.map((option) => (
+            <SelectItem key={option} value={option}>
+              <PriorityIcon priority={option} />
+              {PRIORITY_META[option].label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <TagFilter
+        value={tags}
+        onChange={onTagsChange}
+        className={cn('w-full min-w-0', inline && 'lg:w-40')}
+      />
+
+      <Select value={sort} onValueChange={(value) => onSortChange(value as TaskSort)}>
+        <SelectTrigger
+          className={cn(
+            'w-full min-w-0 bg-white data-[size=default]:h-10 dark:bg-input/30',
+            inline && 'lg:w-44 lg:flex-none',
+          )}
+          aria-label="Sort tasks"
+        >
+          <SlidersHorizontal className="size-4 text-muted-foreground" />
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {TASK_SORTS.map((option) => (
+            <SelectItem key={option} value={option}>
+              {SORT_META[option]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </>
+  )
+
+  return (
+    // `gap`, not `space-y`: the tab strip is `display: none` on phones and a
+    // gap skips it, where `space-y` would still leave its margin behind.
+    <div className="flex flex-col gap-3 sm:gap-4">
+      <div className="flex flex-col gap-2 sm:gap-3 lg:flex-row lg:items-center">
+        {/* On phones the row is just search and a filter button; everything
+            else waits in a sheet so the list is not pushed off the screen. */}
+        <div className="flex min-w-0 flex-1 gap-2">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              type="date"
-              value={dueOnOrBefore ?? ''}
-              onChange={(event) => onDueChange(event.target.value || undefined)}
-              aria-label="Show tasks due on or before"
-              title="Due on or before"
-              className={cn('h-10 pl-9', dueOnOrBefore && 'pr-9')}
+              value={search}
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder="Search task titles…"
+              aria-label="Search tasks"
+              className="bg-white dark:bg-input/30 h-10 pr-9 pl-9"
             />
-            {dueOnOrBefore && (
+            {search && (
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Clear due date filter"
-                onClick={() => onDueChange(undefined)}
+                aria-label="Clear search"
+                onClick={() => onSearchChange('')}
                 className="absolute top-1/2 right-1.5 -translate-y-1/2"
               >
                 <X className="size-3.5" />
@@ -122,50 +219,60 @@ export function TaskFilterBar({
             )}
           </div>
 
-          <Select
-            value={priority ?? ANY_PRIORITY}
-            onValueChange={(value) =>
-              onPriorityChange(value === ANY_PRIORITY ? undefined : (value as TaskPriority))
-            }
-          >
-            <SelectTrigger
-              // `SelectTrigger` sets its height as `data-[size=default]:h-8`. A
-              // plain `h-10` carries no variant, so tailwind-merge keeps both and
-              // the data-attribute selector wins on specificity — the control
-              // silently stays 32px beside a 40px input. Matching the variant is
-              // what overrides it, here and on every other trigger in the app.
-              className="flex-1 data-[size=default]:h-10 sm:w-40 sm:flex-none"
-              aria-label="Filter tasks by priority"
-            >
-              <Flag className="size-4 text-muted-foreground" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ANY_PRIORITY}>Any priority</SelectItem>
-              {TASK_PRIORITIES.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {PRIORITY_META[option].label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label={activeFilterCount ? `Filters, ${activeFilterCount} applied` : 'Filters'}
+                className="relative size-10 shrink-0 bg-white sm:hidden dark:bg-input/30"
+              >
+                <ListFilter className="size-4" />
+                {activeFilterCount > 0 && (
+                  <span
+                    aria-hidden
+                    className="absolute -top-1 -right-1 size-2.5 rounded-full bg-destructive ring-2 ring-background"
+                  />
+                )}
+              </Button>
+            </SheetTrigger>
+            {/* From the right and full height, not a bottom sheet: the selects
+                and the tag picker open downwards, and at the bottom of the
+                screen they would have nowhere to go. */}
+            <SheetContent side="right" className="w-[85vw] gap-0">
+              <SheetHeader className="border-b">
+                <SheetTitle>Filters</SheetTitle>
+                <SheetDescription className="sr-only">
+                  Narrow and sort the tasks in this board.
+                </SheetDescription>
+              </SheetHeader>
+              <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+                {renderFilters(false)}
+              </div>
+              <SheetFooter className="flex-row border-t">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1"
+                  disabled={activeFilterCount === 0}
+                  onClick={onClearFilters}
+                >
+                  Clear filters
+                </Button>
+                <SheetClose asChild>
+                  <Button type="button" className="flex-1">
+                    Done
+                  </Button>
+                </SheetClose>
+              </SheetFooter>
+            </SheetContent>
+          </Sheet>
+        </div>
 
-          <Select value={sort} onValueChange={(value) => onSortChange(value as TaskSort)}>
-            <SelectTrigger
-              className="flex-1 data-[size=default]:h-10 sm:w-48 sm:flex-none"
-              aria-label="Sort tasks"
-            >
-              <SlidersHorizontal className="size-4 text-muted-foreground" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {TASK_SORTS.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {SORT_META[option]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        {/* From `sm`: two columns, four from `md`, fixed widths beside the
+            search box from `lg`. */}
+        <div className="hidden grid-cols-2 gap-3 sm:grid md:grid-cols-4 lg:flex lg:flex-row">
+          {renderFilters(true)}
         </div>
       </div>
 
@@ -175,63 +282,45 @@ export function TaskFilterBar({
         </p>
       )}
 
-      {/* Segmented control wherever the five options fit, a select below that.
-          `ToggleGroup type="single"` is a Radix radiogroup — one of five, no
-          panels — which is what this strip actually is. */}
-      <div className="hidden overflow-x-auto sm:block">
-        <ToggleGroup
-          type="single"
-          value={filter}
-          // Radix allows a single group to deselect back to `''`. A list always
-          // has a view, so clicking the active tab is a no-op rather than a way
-          // to reach a filter that does not exist.
-          onValueChange={(value) => value && onFilterChange(value as TaskFilter)}
-          variant="outline"
-          size="lg"
-          spacing={0}
+      {/* The status tabs, at every width and always full width. There are no
+          panels — the list below re-queries instead — so this only borrows the
+          tab strip's look and keyboard model. Five tabs only fit a phone with
+          the count stacked under each label; from `sm` they share a line. */}
+      <Tabs
+        value={filter}
+        onValueChange={(value) => onFilterChange(value as TaskFilter)}
+        className="w-full"
+      >
+        <TabsList
+          className="w-full bg-border/70 group-data-horizontal/tabs:h-12 sm:group-data-horizontal/tabs:h-10 dark:bg-muted"
           aria-label="Filter tasks by status"
         >
           {TASK_FILTERS.map((option) => (
-            <ToggleGroupItem
+            <TabsTrigger
               key={option}
               value={option}
               aria-label={FILTER_META[option].label}
-              className="px-3 data-[state=on]:bg-brand-900 data-[state=on]:text-white dark:data-[state=on]:bg-brand-200 dark:data-[state=on]:text-brand-900"
+              // `primary` is the brand blue — brand-900 in light, brand-200 in
+              // dark — so the active tab follows the theme without a `dark:` pair.
+              className="min-w-0 flex-col gap-0 px-1 text-[11px] leading-4 sm:flex-row sm:gap-1.5 sm:px-1.5 sm:text-sm data-active:bg-primary data-active:text-primary-foreground dark:data-active:border-transparent dark:data-active:bg-primary dark:data-active:text-primary-foreground"
             >
-              {FILTER_META[option].shortLabel}
+              <span className="truncate">{FILTER_META[option].shortLabel}</span>
               {stats && (
                 <span
                   className={cn(
-                    'rounded-md px-1.5 py-0.5 text-xs tabular-nums',
-                    option === filter ? 'bg-white/20 dark:bg-brand-900/15' : 'bg-muted',
+                    'rounded-md px-1.5 text-[10px] leading-4 tabular-nums sm:py-0.5 sm:text-xs',
+                    option === filter
+                      ? 'bg-primary-foreground/20'
+                      : 'bg-background/60 dark:bg-input/30',
                   )}
                 >
                   {stats[option]}
                 </span>
               )}
-            </ToggleGroupItem>
+            </TabsTrigger>
           ))}
-        </ToggleGroup>
-      </div>
-
-      <div className="sm:hidden">
-        <Select value={filter} onValueChange={(value) => onFilterChange(value as TaskFilter)}>
-          <SelectTrigger
-            className="w-full data-[size=default]:h-10"
-            aria-label="Filter tasks by status"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {TASK_FILTERS.map((option) => (
-              <SelectItem key={option} value={option}>
-                {FILTER_META[option].label}
-                {stats ? ` (${stats[option]})` : ''}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+        </TabsList>
+      </Tabs>
     </div>
   )
 }

@@ -59,7 +59,7 @@ export function BoardEmptyState({ view, search, onCreate, onClearSearch }: Props
       </div>
       <Button size="lg" onClick={onCreate}>
         <Plus className="size-4" />
-        New board
+        Board
       </Button>
     </div>
   )
