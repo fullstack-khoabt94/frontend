@@ -277,6 +277,12 @@ export const taskSearchSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional()
     .catch(undefined),
+  /**
+   * Tag ids; a task matches if it carries **any** of them — the backend joins
+   * `task_tags` with an `IN`. Absent (never `[]`) means no tag filter, so the
+   * cleared state drops out of the URL like `priority` does.
+   */
+  tags: z.array(z.uuid()).min(1).optional().catch(undefined),
   sort: taskSortSchema.catch('created_desc').default('created_desc'),
   page: z.coerce.number().int().min(1).catch(1).default(1),
   size: z.coerce

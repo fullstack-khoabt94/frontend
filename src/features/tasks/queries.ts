@@ -84,10 +84,11 @@ export function useTaskStats(
   q: string,
   priority?: TaskPriority,
   dueOnOrBefore?: string,
+  tags?: string[],
 ) {
   return useQueries({
     queries: TASK_STATUSES.map((status) =>
-      taskCountQuery({ boardId, status, q, priority, dueOnOrBefore }),
+      taskCountQuery({ boardId, status, q, priority, dueOnOrBefore, tags }),
     ),
     combine: (results): TaskStats | undefined => {
       // All three or none: a half-filled summary that settles one card at a
@@ -115,6 +116,7 @@ export function useTaskList(search: TaskSearch, boardId: string) {
     q: search.q,
     priority: search.priority,
     dueOnOrBefore: search.dueOnOrBefore,
+    tags: search.tags,
   }
   const query = useQuery(taskListQuery(params))
   const page = query.data
