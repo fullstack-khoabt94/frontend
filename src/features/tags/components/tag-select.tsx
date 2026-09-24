@@ -175,7 +175,12 @@ export function TagSelect({
       </PopoverTrigger>
 
       {/* Matches the trigger's width, like a select's menu would. */}
-      <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+      <PopoverContent
+        className="w-(--radix-popover-trigger-width) p-0"
+        side="bottom"
+        align="start"
+        avoidCollisions={false}
+      >
         {creating && onCreate ? (
           <InlineCreateTag
             initialTitle={trimmed}

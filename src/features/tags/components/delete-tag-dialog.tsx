@@ -1,14 +1,4 @@
-import { Loader2 } from 'lucide-react'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { ConfirmDialog } from '@/components/common/confirm-dialog'
 import type { Tag } from '../schemas'
 
 type Props = {
@@ -32,37 +22,19 @@ type Props = {
  */
 export function DeleteTagDialog({ tag, onOpenChange, onConfirm, isPending }: Props) {
   return (
-    <AlertDialog open={Boolean(tag)} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete this tag?</AlertDialogTitle>
-          <AlertDialogDescription>
-            <span className="font-medium text-foreground">{tag?.title}</span> is removed from every
-            task that carries it. The tasks themselves are kept. This cannot be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
-          {/* `variant`, not a `bg-destructive` className. `AlertDialogAction`
-              renders a `<Button asChild>`, so the variant's classes and any
-              className land on two different elements and are concatenated
-              rather than merged by tailwind-merge — `bg-primary` and
-              `bg-destructive` both survive and the stylesheet's order decides,
-              which paints the button brand navy. The variant is the only way
-              to actually change it. */}
-          <AlertDialogAction
-            variant="destructive"
-            onClick={(event) => {
-              event.preventDefault()
-              onConfirm()
-            }}
-            disabled={isPending}
-          >
-            {isPending && <Loader2 className="size-4 animate-spin" />}
-            Delete tag
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDialog
+      open={Boolean(tag)}
+      onOpenChange={onOpenChange}
+      title="Delete this tag?"
+      description={
+        <>
+          <span className="font-medium text-foreground">{tag?.title}</span> is removed from every
+          task that carries it. The tasks themselves are kept. This cannot be undone.
+        </>
+      }
+      confirmLabel="Delete tag"
+      onConfirm={onConfirm}
+      isPending={isPending}
+    />
   )
 }

@@ -50,7 +50,8 @@ function pageWindow(current: number, totalPages: number): (number | null)[] {
 }
 
 /**
- * The pagination footer.
+ * The pagination bar above the list: the range and total on the left, the
+ * page size and page buttons on the right.
  *
  * `meta.total` counts every row matching the active filter, search and priority
  * — the server applies all three — so the range and the total describe the same
@@ -72,21 +73,31 @@ export function TaskPagination({
   return (
     <nav
       aria-label="Task pagination"
-      className="flex flex-col gap-4 border-t pt-4 sm:flex-row sm:items-center sm:justify-between"
+      // One row at every width: the caption shortens on phones instead of the
+      // controls dropping onto a second line.
+      className="flex items-center justify-between gap-2"
     >
-      <div className="space-y-1">
-        <p aria-live="polite" className="text-sm text-muted-foreground tabular-nums">
-          {total === 0
-            ? isNarrowed
-              ? 'No tasks match this view'
-              : 'No tasks in this board'
-            : `Showing ${firstOnPage}–${lastOnPage} of ${total} ${
-                isNarrowed ? 'matching ' : ''
-              }task${total === 1 ? '' : 's'}`}
-        </p>
-      </div>
+      <p aria-live="polite" className="min-w-0 truncate text-sm text-muted-foreground tabular-nums">
+        {total === 0 ? (
+          isNarrowed ? (
+            'No tasks match this view'
+          ) : (
+            'No tasks in this board'
+          )
+        ) : (
+          <>
+            <span className="sm:hidden">
+              {firstOnPage}–{lastOnPage} of {total}
+            </span>
+            <span className="hidden sm:inline">
+              Showing {firstOnPage}–{lastOnPage} of {total} {isNarrowed ? 'matching ' : ''}task
+              {total === 1 ? '' : 's'}
+            </span>
+          </>
+        )}
+      </p>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <Select value={String(size)} onValueChange={(value) => onSizeChange(Number(value))}>
           {/* The height needs the same variant the base class uses — see the
               note on the priority trigger in `task-filter-bar.tsx`. */}

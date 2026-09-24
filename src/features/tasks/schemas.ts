@@ -96,24 +96,6 @@ export const pagedResponseSchema = <T extends z.ZodType>(item: T) =>
 export const pagedTaskListSchema = pagedResponseSchema(taskSchema)
 export type PagedTasks = z.infer<typeof pagedTaskListSchema>
 
-/**
- * The backend validates `dueDate` with `@Future`, and receives it as midnight
- * local time, so today itself is already in the past. Only tomorrow onwards
- * passes.
- */
-export function isFutureDate(value: string) {
-  const [year, month, day] = value.split('-').map(Number)
-  if (!year || !month || !day) return false
-  return new Date(year, month - 1, day).getTime() > Date.now()
-}
-
-/** Earliest date the backend will accept, for the date input's `min` attribute. */
-export function earliestDueDate() {
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  return tomorrow.toISOString().slice(0, 10)
-}
-
 /** Shape of the Add / Edit task form — mirrors CreateTaskDto / UpdateTaskDto. */
 export const taskFormSchema = z.object({
   /**
@@ -148,10 +130,9 @@ export const taskFormSchema = z.object({
     ),
   status: taskStatusSchema.default('TODO'),
   priority: taskPrioritySchema.default('MEDIUM'),
-  dueDate: z
-    .string()
-    .optional()
-    .refine((value) => !value || isFutureDate(value), 'Due date must be in the future'),
+  // Any date, past ones included: an overdue task has to stay editable, and
+  // the backend no longer insists on `@Future`.
+  dueDate: z.string().optional(),
   /**
    * Whole tags, not ids.
    *

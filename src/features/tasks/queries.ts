@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import {
   keepPreviousData,
   queryOptions,
@@ -191,9 +192,13 @@ export function useUpdateTask(boardId: string) {
  * `keepPreviousData`), and the row being toggled is only in one of them — but
  * which one is not worth deriving when a prefix match covers it.
  */
+/** How long a re-statused row stays put before the list is refetched. */
+const STATUS_REFETCH_DELAY_MS = 5000
+
 export function useUpdateTaskStatus(boardId: string) {
   const client = useQueryClient()
   const listFilter = { queryKey: taskKeys.lists() }
+  const refetchTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   return useMutation({
     mutationFn: ({ task, status }: { task: Task; status: TaskStatus }) =>
@@ -216,12 +221,30 @@ export function useUpdateTaskStatus(boardId: string) {
         client.setQueryData(key, data)
       }
       toast.error(getApiErrorMessage(error))
+      // The rollback is a guess at the old state; resync with the server now.
+      void invalidateTasks(client)
     },
     onSuccess: (task) => {
       if (task.status === 'DONE')
         toast.success('Nice — task completed', { description: task.title })
+      /**
+       * The tab counts refresh now; the rows wait. Refetching at once would pull
+       * a task out from under the pointer the moment it leaves the active tab
+       * (a "To do" row set to Done), before the change has registered — so the
+       * row stays, showing its new status, for a few seconds first.
+       *
+       * One shared timer, restarted on every change: re-statusing a run of
+       * tasks refetches once, after the last, instead of reshuffling the list
+       * between clicks. It is not cleared on unmount — a refetch after leaving
+       * is harmless, and skipping it would leave the cache stale.
+       */
+      void client.invalidateQueries({ queryKey: taskKeys.counts() })
+      clearTimeout(refetchTimer.current)
+      refetchTimer.current = setTimeout(
+        () => void client.invalidateQueries(listFilter),
+        STATUS_REFETCH_DELAY_MS,
+      )
     },
-    onSettled: () => invalidateTasks(client),
   })
 }
 

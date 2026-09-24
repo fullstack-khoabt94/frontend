@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Pencil } from 'lucide-react'
 import { RichTextEditor } from '@/components/rich-text-editor'
+import { RichTextView } from '@/components/rich-text-view'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -14,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 import {
   Select,
   SelectContent,
@@ -26,7 +28,6 @@ import { TagSelect } from '@/features/tags/components/tag-select'
 import { useCreateTag, useTagList } from '@/features/tags/queries'
 import { PRIORITY_META, STATUS_META } from '../constants'
 import {
-  earliestDueDate,
   sortTags,
   TASK_PRIORITIES,
   TASK_STATUSES,
@@ -35,6 +36,7 @@ import {
   type TaskFormInput,
   type TaskFormValues,
 } from '../schemas'
+import { PriorityIcon } from './priority-icon'
 
 function emptyValues(boardId: string): TaskFormInput {
   return {
@@ -62,11 +64,68 @@ function toFormValues(task: Task, fallbackBoardId: string): TaskFormInput {
   }
 }
 
+/**
+ * A label row with a pencil that toggles its field between reading and editing.
+ *
+ * The pencil only shows while the section is hovered or focused — the prose is
+ * what an open task is for, and a row of edit buttons would crowd it. Devices
+ * that cannot hover always show it, or the field could never be edited there.
+ */
+function EditableLabel({
+  htmlFor,
+  label,
+  editing,
+  onToggle,
+  className,
+}: {
+  htmlFor: string
+  label: string
+  editing: boolean
+  onToggle: () => void
+  className?: string
+}) {
+  return (
+    <div className={cn('flex min-h-7 items-center justify-between gap-2', className)}>
+      <FieldLabel htmlFor={editing ? htmlFor : undefined}>{label}</FieldLabel>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={editing ? `Stop editing ${label.toLowerCase()}` : `Edit ${label.toLowerCase()}`}
+        aria-pressed={editing}
+        onClick={onToggle}
+        className={cn(
+          'text-muted-foreground transition-opacity focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
+          editing
+            ? 'bg-muted text-foreground opacity-100'
+            : 'opacity-0 group-focus-within/editable:opacity-100 group-hover/editable:opacity-100',
+        )}
+      >
+        <Pencil className="size-3.5" />
+      </Button>
+    </div>
+  )
+}
+
+/** The read-only face of a field: same padding as its editor, so toggling does not jump. */
+function ReadonlyBox({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn('rounded-lg border border-transparent px-2.5 py-1.5', className)}>
+      {children}
+    </div>
+  )
+}
+
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** `undefined` puts the dialog in "create" mode. */
   task?: Task
+  /**
+   * Open an existing task with its title and description already editable —
+   * the "Edit task" menu item. Without it they open read-only behind pencils.
+   */
+  startEditing?: boolean
   onSubmit: (values: TaskFormValues) => Promise<unknown>
   isPending: boolean
   /**
@@ -90,6 +149,7 @@ export function TaskFormDialog({
   open,
   onOpenChange,
   task,
+  startEditing = false,
   onSubmit,
   isPending,
   lockedBoardId,
@@ -112,12 +172,44 @@ export function TaskFormDialog({
     defaultValues: emptyValues(lockedBoardId ?? ''),
   })
 
+  /**
+   * Opening a task reads it first: title and description start read-only, each
+   * behind its own pencil, while the metadata column stays editable — those are
+   * quick picks, the prose is what a stray keystroke would damage. Creating has
+   * nothing to read, so both start as editors.
+   */
+  const [editingTitle, setEditingTitle] = useState(startEditing)
+  const [editingDescription, setEditingDescription] = useState(startEditing)
+
+  // Back to the opening mode whenever the dialog opens, or opens on another task.
+  // Adjusted during render rather than in an effect, which would paint the
+  // stale editors for a frame first.
+  const sessionKey = open ? (task?.id ?? 'new') : null
+  const [previousSessionKey, setPreviousSessionKey] = useState(sessionKey)
+  if (previousSessionKey !== sessionKey) {
+    setPreviousSessionKey(sessionKey)
+    setEditingTitle(startEditing)
+    setEditingDescription(startEditing)
+  }
+
   // Reset on every open so a cancelled edit never leaks into the next one.
   useEffect(() => {
     if (!open) return
     const fallback = lockedBoardId ?? ''
     form.reset(task ? toFormValues(task, fallback) : emptyValues(fallback))
   }, [open, task, lockedBoardId, form])
+
+  const { errors } = form.formState
+  // What the read-only faces show: the form's current values, so a title edited
+  // and then toggled back still reads as the new text.
+  const [titleValue, descriptionValue] = useWatch({
+    control: form.control,
+    name: ['title', 'description'],
+  })
+  // A field with an error is always an editor — the message has to sit under
+  // something that can be fixed.
+  const showTitleEditor = !isEdit || editingTitle || Boolean(errors.title)
+  const showDescriptionEditor = !isEdit || editingDescription || Boolean(errors.description)
 
   const submit = form.handleSubmit(async (values) => {
     await onSubmit(values)
@@ -127,8 +219,17 @@ export function TaskFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Rows: header stays pinned, the fields scroll, the footer stays reachable
           even on short viewports (small phones, any phone in landscape). */}
-      <DialogContent className="grid max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)] sm:max-w-[75vw]">
-        <DialogHeader>
+      <DialogContent
+        className={cn(
+          'grid h-[calc(100dvh-2rem)] sm:h-[90dvh] sm:max-w-[90vw]',
+          // The `sr-only` header is absolutely positioned and takes no grid
+          // row, so the form owns the single stretchy row.
+          'grid-rows-[minmax(0,1fr)]',
+        )}
+      >
+        {/* The fields speak for themselves, so the header only exists for
+            screen readers — Radix still needs a title to name the dialog by. */}
+        <DialogHeader className="sr-only">
           <DialogTitle>{isEdit ? 'Edit task' : 'New task'}</DialogTitle>
           <DialogDescription>
             {isEdit ? 'Update the details of this task.' : 'Add something you need to get done.'}
@@ -145,36 +246,78 @@ export function TaskFormDialog({
               The whole body scrolls as one so the footer stays pinned. */}
           <div className="-mx-1 grid min-h-0 gap-6 overflow-y-auto px-1 lg:grid-cols-[3fr_1fr]">
             <FieldGroup>
-              <Field data-invalid={Boolean(form.formState.errors.title)}>
-                <FieldLabel htmlFor="task-title">Title</FieldLabel>
-                <Input
-                  id="task-title"
-                  placeholder="e.g. Review the design handoff"
-                  autoFocus
-                  aria-invalid={Boolean(form.formState.errors.title)}
-                  {...form.register('title')}
-                />
-                <FieldError errors={[form.formState.errors.title]} />
+              <Field data-invalid={Boolean(errors.title)} className="group/editable">
+                {isEdit ? (
+                  <EditableLabel
+                    htmlFor="task-title"
+                    label="Title"
+                    // With no visible header this row is the top of the dialog;
+                    // below `lg` it spans the width, under the close button.
+                    className="pr-8 lg:pr-0"
+                    editing={showTitleEditor}
+                    onToggle={() => setEditingTitle((value) => !value)}
+                  />
+                ) : (
+                  <FieldLabel htmlFor="task-title">Title</FieldLabel>
+                )}
+                {showTitleEditor ? (
+                  <Input
+                    id="task-title"
+                    placeholder="e.g. Review the design handoff"
+                    // Create opens straight into the title; an edit focuses it
+                    // only once its pencil is pressed.
+                    autoFocus
+                    aria-invalid={Boolean(errors.title)}
+                    {...form.register('title')}
+                  />
+                ) : (
+                  <ReadonlyBox>
+                    <p className="text-base font-medium wrap-anywhere md:text-sm">{titleValue}</p>
+                  </ReadonlyBox>
+                )}
+                <FieldError errors={[errors.title]} />
               </Field>
 
-              <Field data-invalid={Boolean(form.formState.errors.description)}>
-                <FieldLabel htmlFor="task-description">Description</FieldLabel>
-                <Controller
-                  control={form.control}
-                  name="description"
-                  render={({ field }) => (
-                    <RichTextEditor
-                      id="task-description"
-                      value={field.value}
-                      onChange={field.onChange}
-                      onBlur={field.onBlur}
-                      className="[&_.tiptap]:min-h-40 lg:[&_.tiptap]:min-h-72"
-                      placeholder="Add any detail that helps you pick this up later."
-                      invalid={Boolean(form.formState.errors.description)}
-                    />
-                  )}
-                />
-                <FieldError errors={[form.formState.errors.description]} />
+              <Field data-invalid={Boolean(errors.description)} className="group/editable">
+                {isEdit ? (
+                  <EditableLabel
+                    htmlFor="task-description"
+                    label="Description"
+                    editing={showDescriptionEditor}
+                    onToggle={() => setEditingDescription((value) => !value)}
+                  />
+                ) : (
+                  <FieldLabel htmlFor="task-description">Description</FieldLabel>
+                )}
+                {showDescriptionEditor ? (
+                  <Controller
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <RichTextEditor
+                        id="task-description"
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        className="[&_.tiptap]:min-h-40 lg:[&_.tiptap]:min-h-72"
+                        placeholder="Add any detail that helps you pick this up later."
+                        invalid={Boolean(errors.description)}
+                      />
+                    )}
+                  />
+                ) : (
+                  <ReadonlyBox className="py-2">
+                    {descriptionValue ? (
+                      <RichTextView
+                        html={descriptionValue}
+                        className="text-base wrap-anywhere md:text-sm"
+                      />
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No description.</p>
+                    )}
+                  </ReadonlyBox>
+                )}
+                <FieldError errors={[errors.description]} />
               </Field>
             </FieldGroup>
 
@@ -254,6 +397,7 @@ export function TaskFormDialog({
                         <SelectContent>
                           {TASK_PRIORITIES.map((priority) => (
                             <SelectItem key={priority} value={priority}>
+                              <PriorityIcon priority={priority} />
                               {PRIORITY_META[priority].label}
                             </SelectItem>
                           ))}
@@ -269,7 +413,6 @@ export function TaskFormDialog({
                 <Input
                   id="task-due"
                   type="date"
-                  min={earliestDueDate()}
                   aria-invalid={Boolean(form.formState.errors.dueDate)}
                   {...form.register('dueDate')}
                 />
